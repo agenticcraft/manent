@@ -53,3 +53,10 @@ Thumbs.db
 *.wav
 *.flac
 spikes/*/recordings/
+spikes/localai/bin/
+spikes/localai/data/
+spikes/localai/samples/meetings/**/*.m4a
+spikes/localai/samples/meetings/**/*.vtt
+spikes/localai/samples/meetings/**/*.zip
+__pycache__/
+spikes/localai/results/

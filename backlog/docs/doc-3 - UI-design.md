@@ -2,8 +2,8 @@
 id: doc-3
 title: UI design
 type: specification
-created_date: '2026-10-29 12:18'
-updated_date: '2026-10-29 12:20'
+created_date: 2026-10-29 12:18
+updated_date: '2026-10-29T17:05:00Z'
 ---
 ## UI design: clean and calm
 
@@ -23,6 +23,6 @@ updated_date: '2026-10-29 12:20'
 4. **Speakers:** known voices with name, color, number of meetings, and Rename, Merge and Delete actions.
 5. **Settings:**
    - **Sources:** choose the mic and the output device to capture, test meters, and an "auto-detect default device" option.
-   - **Transcription:** model (standard 0.6B v3 by default, small as an English-only fallback), language hint (auto, NL or EN), and the diarization latency setting.
+   - **Transcription:** language (Auto, Nederlands, English), live and offline model per language, and the diarization latency setting. The live screen lets the user override the language for one meeting.
    - **Shortcuts:** the global hotkey for start/stop and whether the app starts minimized to the tray.
    - **Storage:** location and the format to keep.

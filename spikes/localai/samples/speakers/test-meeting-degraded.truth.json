@@ -1,0 +1,142 @@
+{
+  "source": "openslr/librispeech_asr clean/test (CC-BY-4.0)",
+  "enroll": {
+    "Anna": {
+      "speaker_id": 2094,
+      "utterances": [
+        "2094-142345-0000"
+      ],
+      "seconds": 22.6
+    },
+    "Ben": {
+      "speaker_id": 8230,
+      "utterances": [
+        "8230-279154-0000",
+        "8230-279154-0001"
+      ],
+      "seconds": 26.2
+    },
+    "Clara": {
+      "speaker_id": 4992,
+      "utterances": [
+        "4992-23283-0000",
+        "4992-23283-0001",
+        "4992-23283-0002",
+        "4992-23283-0003",
+        "4992-23283-0004"
+      ],
+      "seconds": 25.2
+    },
+    "David": {
+      "speaker_id": 2300,
+      "utterances": [
+        "2300-131720-0000",
+        "2300-131720-0001",
+        "2300-131720-0002"
+      ],
+      "seconds": 32.8
+    }
+  },
+  "segments": [
+    {
+      "start": 0.5,
+      "end": 8.53,
+      "speaker_id": 2094,
+      "name": "Anna",
+      "enrolled": true,
+      "chapter_id": 142345,
+      "utterance": "2094-142345-0001",
+      "text": "but the windows are patched with wooden panes and the door i think is like the gate it is never opened"
+    },
+    {
+      "start": 9.33,
+      "end": 23.39,
+      "speaker_id": 8230,
+      "name": "Ben",
+      "enrolled": true,
+      "chapter_id": 279154,
+      "utterance": "8230-279154-0004",
+      "text": "there is no logical impossibility in the hypothesis that the world sprang into being five minutes ago exactly as it then was with a population that remembered a wholly unreal past"
+    },
+    {
+      "start": 24.19,
+      "end": 37.81,
+      "speaker_id": 672,
+      "name": null,
+      "enrolled": false,
+      "chapter_id": 122797,
+      "utterance": "672-122797-0002",
+      "text": "he did not think of the warm sun and of the fresh air he did not care for the little cottage children that ran about and prattled when they were in the woods looking for wild strawberries"
+    },
+    {
+      "start": 38.61,
+      "end": 44.09,
+      "speaker_id": 4992,
+      "name": "Clara",
+      "enrolled": true,
+      "chapter_id": 41797,
+      "utterance": "4992-41797-0000",
+      "text": "yes dead these four years an a good job for her too"
+    },
+    {
+      "start": 44.89,
+      "end": 51.79,
+      "speaker_id": 2300,
+      "name": "David",
+      "enrolled": true,
+      "chapter_id": 131720,
+      "utterance": "2300-131720-0005",
+      "text": "why if we erect a station at the falls it is a great economy to get it up to the city"
+    },
+    {
+      "start": 52.59,
+      "end": 67.27,
+      "speaker_id": 2094,
+      "name": "Anna",
+      "enrolled": true,
+      "chapter_id": 142345,
+      "utterance": "2094-142345-0003",
+      "text": "a large open fireplace with rusty dogs in it and a bare boarded floor at the far end fleeces of wool stacked up in the middle of the floor some empty corn bags"
+    },
+    {
+      "start": 68.07,
+      "end": 80.16,
+      "speaker_id": 3570,
+      "name": null,
+      "enrolled": false,
+      "chapter_id": 5694,
+      "utterance": "3570-5694-0000",
+      "text": "but already at a point in economic evolution far antedating the emergence of the lady specialised consumption of goods as an evidence of pecuniary strength had begun to work out in a more or less elaborate system"
+    },
+    {
+      "start": 80.95,
+      "end": 88.67,
+      "speaker_id": 8230,
+      "name": "Ben",
+      "enrolled": true,
+      "chapter_id": 279154,
+      "utterance": "8230-279154-0005",
+      "text": "all that i am doing is to use its logical tenability as a help in the analysis of what occurs when we remember"
+    },
+    {
+      "start": 89.47,
+      "end": 95.1,
+      "speaker_id": 4992,
+      "name": "Clara",
+      "enrolled": true,
+      "chapter_id": 41797,
+      "utterance": "4992-41797-0002",
+      "text": "grandfather was alexander carey l l d doctor of laws that is"
+    },
+    {
+      "start": 95.9,
+      "end": 109.34,
+      "speaker_id": 2300,
+      "name": "David",
+      "enrolled": true,
+      "chapter_id": 131720,
+      "utterance": "2300-131720-0007",
+      "text": "broad as the prairies and free in thought as the winds that sweep them he is idiosyncratically opposed to loose and wasteful methods to plans of empire that neglect the poor at the gate"
+    }
+  ]
+}

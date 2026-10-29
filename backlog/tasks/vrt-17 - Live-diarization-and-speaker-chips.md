@@ -3,8 +3,8 @@ id: VRT-17
 title: Live diarization and speaker chips
 status: To Do
 assignee: []
-created_date: '2026-10-29 12:17'
-updated_date: '2026-10-29 12:19'
+created_date: 2026-10-29 12:17
+updated_date: '2026-10-29T17:05:00Z'
 labels:
   - transcription
   - frontend
@@ -30,4 +30,5 @@ Diarize the system track; label the mic track as 'Me' by default. Resolve mic bl
 - [ ] #3 Overlap/bleed logic covered by unit tests
 - [ ] #4 Current speaker block highlighted in the UI
 - [ ] #5 Verified by playing a two-person podcast clip while speaking: at least three distinct speakers within ~1-2 s
+- [ ] #6 Verified with both a Dutch and an English multi-speaker recording
 <!-- AC:END -->

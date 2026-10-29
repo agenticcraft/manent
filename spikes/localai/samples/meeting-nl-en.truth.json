@@ -1,0 +1,83 @@
+{
+  "source": "google/fleurs (CC-BY-4.0): nl_nl test, en_us validation",
+  "note": "FLEURS has no speaker ids and its gender labels are unreliable (all nl_nl rows are 0). Voices are picked by measured pitch: '-m' = lowest-pitched clips, '-f' = highest-pitched clips per language. Two clips with the same voice label may still be different people.",
+  "format": {
+    "channels": 1,
+    "sample_width": 2,
+    "rate": 16000
+  },
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 10.74,
+      "voice": "nl-f",
+      "lang": "nl",
+      "pitch_hz": 148,
+      "fleurs_id": 1784,
+      "text": "groenland had nog weinig inwoners volgens noorse sagen werd erik de rode uit ijsland verbannen wegens moord vond groenland op weg naar het westen en gaf het zijn naam"
+    },
+    {
+      "start": 11.54,
+      "end": 17.56,
+      "voice": "en-m",
+      "lang": "en",
+      "pitch_hz": 103,
+      "fleurs_id": 1652,
+      "text": "the major religion in moldova is orthodox christian"
+    },
+    {
+      "start": 18.36,
+      "end": 29.88,
+      "voice": "nl-m",
+      "lang": "nl",
+      "pitch_hz": 101,
+      "fleurs_id": 2008,
+      "text": "op bali staan ook andere onderwerpen op de agenda zoals de bescherming van resterende bossen in de wereld alsmede het delen van technologieën om ontwikkelingslanden te helpen om te groeien op een minder vervuilende manier"
+    },
+    {
+      "start": 30.68,
+      "end": 41.66,
+      "voice": "en-f",
+      "lang": "en",
+      "pitch_hz": 151,
+      "fleurs_id": 1594,
+      "text": "some animals such as elephants and giraffes tend to approach closely to cars and standard equipment will allow good viewing"
+    },
+    {
+      "start": 42.46,
+      "end": 48.58,
+      "voice": "nl-f",
+      "lang": "nl",
+      "pitch_hz": 163,
+      "fleurs_id": 1897,
+      "text": "de streek grenst zuidelijk en westelijk aan de atlantische oceaan en noordelijk aan de sahel-streek"
+    },
+    {
+      "start": 49.38,
+      "end": 56.04,
+      "voice": "en-m",
+      "lang": "en",
+      "pitch_hz": 104,
+      "fleurs_id": 1531,
+      "text": "the east african islands are in the indian ocean off the eastern coast of africa"
+    },
+    {
+      "start": 56.84,
+      "end": 62.36,
+      "voice": "nl-m",
+      "lang": "nl",
+      "pitch_hz": 104,
+      "fleurs_id": 1764,
+      "text": "er waren zo veel aanwezigen dat niet iedereen toegang kon krijgen tot de begrafenis op het sint-pietersplein"
+    },
+    {
+      "start": 63.16,
+      "end": 73.36,
+      "voice": "en-f",
+      "lang": "en",
+      "pitch_hz": 159,
+      "fleurs_id": 1533,
+      "text": "many common formats aps family of formats for example are equal to or closely approximate this aspect ratio"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+# From gallery entry localai@parakeet-cpp-nemotron-3.5-asr-streaming-0.6b (file fetched manually, sha256-verified)
+backend: parakeet-cpp
+known_usecases:
+  - transcript
+name: parakeet-cpp-nemotron-3.5-asr-streaming-0.6b
+parameters:
+  model: parakeet-cpp/nemotron-3.5-asr-streaming-0.6b-q8_0.gguf

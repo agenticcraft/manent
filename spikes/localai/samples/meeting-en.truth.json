@@ -1,0 +1,47 @@
+{
+  "source": "google/fleurs (CC-BY-4.0): nl_nl test, en_us validation",
+  "note": "FLEURS has no speaker ids and its gender labels are unreliable (all nl_nl rows are 0). Voices are picked by measured pitch: '-m' = lowest-pitched clips, '-f' = highest-pitched clips per language. Two clips with the same voice label may still be different people.",
+  "format": {
+    "channels": 1,
+    "sample_width": 2,
+    "rate": 16000
+  },
+  "segments": [
+    {
+      "start": 1.0,
+      "end": 7.02,
+      "voice": "en-m",
+      "lang": "en",
+      "pitch_hz": 103,
+      "fleurs_id": 1652,
+      "text": "the major religion in moldova is orthodox christian"
+    },
+    {
+      "start": 8.52,
+      "end": 19.5,
+      "voice": "en-f",
+      "lang": "en",
+      "pitch_hz": 151,
+      "fleurs_id": 1594,
+      "text": "some animals such as elephants and giraffes tend to approach closely to cars and standard equipment will allow good viewing"
+    },
+    {
+      "start": 21.0,
+      "end": 27.66,
+      "voice": "en-m",
+      "lang": "en",
+      "pitch_hz": 104,
+      "fleurs_id": 1531,
+      "text": "the east african islands are in the indian ocean off the eastern coast of africa"
+    },
+    {
+      "start": 29.16,
+      "end": 39.36,
+      "voice": "en-f",
+      "lang": "en",
+      "pitch_hz": 159,
+      "fleurs_id": 1533,
+      "text": "many common formats aps family of formats for example are equal to or closely approximate this aspect ratio"
+    }
+  ]
+}

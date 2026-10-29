@@ -1,0 +1,8 @@
+# Transcription-only realtime pipeline for the VRT-2 spike (no LLM/TTS).
+name: veritas-live-en
+pipeline:
+  vad: parakeet-cpp-bundle-standard
+  transcription: parakeet-cpp-realtime-scene-speakers
+  turn_detection:
+    type: semantic_vad
+    eagerness: medium

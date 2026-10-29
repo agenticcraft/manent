@@ -1,0 +1,29 @@
+{
+  "source": "byan/cs-fleurs mms/test nld-eng (CC-BY-NC-4.0, synthetic TTS)",
+  "clips": [
+    {
+      "id": "nld_eng_concat.0",
+      "file_name": "audio/cs_nld_eng_n1_0.3_vfilt_vconcat_vF_feb14/concat.0.wav",
+      "text": "Veel populaire Duitse gebakjes feature amandelen, hazelnuts, en andere noten, en pair prima bij een kop sterke coffee.",
+      "duration": 13.615,
+      "language": "nld-eng",
+      "speaker": "nld-eng_spk0"
+    },
+    {
+      "id": "nld_eng_concat.1",
+      "file_name": "audio/cs_nld_eng_n1_0.3_vfilt_vconcat_vF_feb14/concat.1.wav",
+      "text": "Traditioneel gezien is het de taak van de navies om ervoor te ensure dat een land de mogelijkheid behoudt om personen en goederen te vervoeren, terwijl de ability van de vijand om mensen en goods. te vervoeren juist wordt interfering goods.",
+      "duration": 22.663,
+      "language": "nld-eng",
+      "speaker": "nld-eng_spk0"
+    },
+    {
+      "id": "nld_eng_concat.2",
+      "file_name": "audio/cs_nld_eng_n1_0.3_vfilt_vconcat_vF_feb14/concat.2.wav",
+      "text": "Het grote aantal gebouwen waaruit de skyline van Hong bestaat, is al likened met een glinsterende staafgrafiek die zichtbaar wordt dankzij de wateren van Victoria Harbour.",
+      "duration": 16.235,
+      "language": "nld-eng",
+      "speaker": "nld-eng_spk0"
+    }
+  ]
+}

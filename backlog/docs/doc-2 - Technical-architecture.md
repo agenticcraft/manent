@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-10-29T14:27:00Z'
+updated_date: '2026-10-29T17:05:00Z'
 ---
 ## 1. Technical foundation
 
@@ -38,24 +38,32 @@ From the LocalAI docs (localai.io/docs/features/audio-to-text):
 - `parakeet-cpp` is a C++/ggml port of NVIDIA NeMo Parakeet. It runs quantized GGUF models on CPU at upstream accuracy and returns **word-level timestamps**.
 - The same backend handles **cache-aware streaming** (the `realtime_eou_120m` model, which emits end-of-utterance events), **diarization** (`/v1/audio/diarization`, Nemotron-3 diarization model), **speaker naming** (`speaker_model`, WeSpeaker embeddings, `speaker_threshold` and `speaker_margin`), and **VAD** (`vad:true` or Silero).
 - **Bundles** package all of these in one file:
-  - `parakeet-cpp-bundle-standard` (1.1 GB): ASR with the **0.6B v3** model, which covers 25 European languages including Dutch and English, plus diarization, sound events, speaker naming and VAD. **This is the default for both live and offline transcription.**
+  - `parakeet-cpp-bundle-standard` (1.1 GB): ASR with the **0.6B v3** model (25 European languages), plus diarization, sound events, speaker naming and VAD. **This is the offline default.** It is not a streaming model, so it can't do live transcription.
   - `parakeet-cpp-bundle-small` (338 MB): the same components with the 110M ASR model, which is English-only. It is an optional low-power fallback.
-  - **Risk:** the cache-aware streaming model (`realtime_eou_120m`) appears to be English-only. For live Dutch, Phase 0 must check whether 0.6B v3 can stream. If it can't, the fallback is VAD-chunked pseudo-streaming: the app cuts the audio at pauses into 2–6 s chunks and sends each chunk to 0.6B v3. That gives a latency of about 1–3 s, which is fine on this CPU.
+  - **Live (English):** a cache-aware streaming model, `realtime_eou_120m` (English, 254 MB), for example as `parakeet-cpp-realtime-scene-speakers`, which adds live diarization and speaker names. 
+  - **Live (Dutch):** decided in VRT-32. Candidate: `nemotron-3.5-asr-streaming-0.6b` (multilingual cache-aware streaming, 938 MB q8_0, language per request or auto-detect). Fallback: VAD-chunked transcription with the 0.6B v3 bundle (~1–3 s latency).
+  - **Backend variant:** install the CPU backend explicitly (`cpu-parakeet-cpp`, 29 MB). LocalAI's auto-detection picks a GPU build when it sees one (for example the multi-GB ROCm build on AMD).
 - Since LocalAI 4.11, realtime sessions emit `conversation.item.input_audio_transcription.segment` events with `speaker` / `speaker_name`.
 
 How the app uses it:
-- The app runs **LocalAI as a sidecar process** (the `local-ai` binary is bundled through Tauri `externalBin` and bound to `127.0.0.1` on a random port). Rust supervises it: start, health check, restart, and installing models on first run with a progress bar.
-- **Live:** the app opens one OpenAI-style realtime/streaming session for each source (`/v1/realtime` WebSocket, or `/v1/audio/transcriptions` with `stream=true` as the fallback). It sends the 16 kHz chunks and receives text deltas and final segments with speaker labels.
-- **Offline (recordings and imports):** `POST /v1/audio/diarization` with `include_text=true` and `timestamp_granularities[]=word`, using the standard bundle and `vad:true` for long files.
+- The app runs **LocalAI as a sidecar process**, bound to `127.0.0.1` on a random port. Rust supervises it: start, health check, restart, and installing the CPU backends (`cpu-parakeet-cpp`, and models with a progress bar. How the engine is packaged and delivered (bundled or downloaded after install, full LocalAI or something leaner) is decided in VRT-29. LocalAI only discovers newly installed backends at startup, so it restarts after a backend install.
+- **Live:** the app opens one realtime WebSocket *transcription* session for each source (validated in VRT-2):
+  - Connect to `ws://127.0.0.1:<port>/v1/realtime?model=<pipeline>`. The pipeline is a model config with only `pipeline.vad` and `pipeline.transcription` (no LLM or TTS), using `semantic_vad` so the streaming model's end-of-utterance token closes turns.
+  - Send `session.update` with `session.type = "transcription"`, `audio.input.format = {type: "audio/pcm", rate: 16000}`, the transcription model and `turn_detection`. Then stream `input_audio_buffer.append` with base64 PCM16 in 100 ms chunks.
+  - Receive `conversation.item.input_audio_transcription.delta` (live captions, words about every 0.3 s) and `...completed` (final text per turn, about 1 s after the speaker stops).
+  - Live speaker segments (`...segment` events) did not appear in VRT-2, so speakers come from an offline pass per committed turn or per meeting until that is solved.
+- **Offline (recordings and imports):** `POST /v1/audio/transcriptions` with `response_format=verbose_json` and `timestamp_granularities[]=word` returns segments with a speaker label and nested words. `POST /v1/audio/diarization` with `include_speaker_profiles=true` adds per-speaker embeddings, which the app matches to names itself (§1.4). The app merges the two by timestamp. Don't use `include_text=true` on the diarization endpoint: in LocalAI v4.12.1 it collapses everything into one segment.
 - An `Engine` trait in Rust (`transcribe_stream`, `transcribe_file`, `enroll_speaker`) hides LocalAI. That makes it possible later to swap in parakeet.cpp linked directly through FFI, which mobile will need because there is no sidecar there.
 
 ### 1.4 Speaker identity and naming
-- LocalAI's speaker registry only lives in memory, so it is lost when the process restarts. **Veritas therefore keeps its own registry:**
-  - Table `speakers(id, name, color, embedding BLOB, samples_count)`.
-  - When the user clicks an unnamed "Speaker 2" chip and type "Anna", the app takes about 5–10 s of that speaker's audio from the segment timestamps, computes or fetches an embedding, and saves it.
-  - At engine startup the app re-registers every known speaker with LocalAI (speaker-naming API). New sessions then show "Anna" automatically.
-  - Renaming one speaker updates every segment in that meeting retroactively.
-  - Speakers can be merged, for example when "Speaker 1" and "Speaker 3" turn out to be the same person.
+Validated in VRT-30: 10/10 turns named correctly on new speech, including 6 s enrollments and call-quality audio, with no false names on unenrolled speakers.
+
+- **Embeddings come from LocalAI, matching happens in the app.** `/v1/audio/diarization` with `include_speaker_profiles=true` returns a 256-dim WeSpeaker embedding (and `clean_duration`) per speaker. Veritas compares those with its own registry using cosine distance in Rust. It doesn't depend on LocalAI's voice registry, which is in memory (lost on restart) and needs the extra `local-store` backend.
+- **Registry:** tables `speakers(id, name, color)` and `voice_samples(id, speaker_id, embedding BLOB, encoder_id, clean_seconds, meeting_id, created_at)`. A person has several samples. Matching uses the nearest sample, and only samples from the same encoder (`encoder_id` = the `sha256:` identity in `speaker_profiles`).
+- **Decision bands** (cosine distance to the nearest sample): ≤ 0.45 names the speaker automatically; 0.45–0.60 suggests the name for the user to confirm; > 0.60 leaves the speaker unnamed ("Speaker N"). Measured: same person 0.03–0.39, different people ≥ 0.76. Re-check the bands on real meetings.
+- **Naming a speaker:** when the user clicks an unnamed "Speaker 2" chip and types "Anna", that speaker's embedding from this meeting becomes a sample for Anna. Every confirmed or corrected name adds a sample, so matching adapts to real mics and rooms over time. Only speakers with at least 5 s of clean speech are used as samples.
+- **Named transcript:** transcription segments get the name (or "Speaker N") of the diarization segment they overlap most. Consecutive segments of the same speaker form one block.
+- Renaming a speaker updates every segment retroactively. Merging speakers (for example "Speaker 1" and "Speaker 3" are the same person) moves their samples to one person. Deleting a person deletes all their samples.
 
 ### 1.5 Storage
 - **SQLite** (`sqlx`, file-based) in the OS app-data folder.

@@ -3,8 +3,8 @@ id: VRT-20
 title: Meeting detail view with click-to-seek and search
 status: To Do
 assignee: []
-created_date: '2026-10-29 12:17'
-updated_date: '2026-10-29 12:18'
+created_date: 2026-10-29 12:17
+updated_date: '2026-10-29T17:05:00Z'
 labels:
   - frontend
 milestone: m-2
@@ -28,4 +28,5 @@ Meeting page: transcript view plus waveform player; clicking a word seeks playba
 - [ ] #1 Clicking a word seeks audio to its timestamp
 - [ ] #2 Currently playing word/segment is highlighted
 - [ ] #3 Search finds meetings by transcript text and jumps to the match
+- [ ] #4 Search works for Dutch and English text, including diacritics (e.g. 'ë', 'é')
 <!-- AC:END -->
