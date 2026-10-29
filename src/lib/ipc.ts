@@ -24,8 +24,10 @@ export interface SourceInfo {
 }
 
 export interface RecordingStarted {
-  meeting_id: string;
-  dir: string;
+  meeting_id: number;
+  /** Unix epoch milliseconds. */
+  started_at: number;
+  sources: SourceInfo[];
 }
 
 /** What was written for one source when a recording stops (Rust: audio::TrackSummary). */
@@ -44,6 +46,42 @@ export interface LevelEvent {
   rms_db: number;
   peak_db: number;
   paused: boolean;
+  /** A muted source records silence; the level still shows the input. */
+  muted: boolean;
+}
+
+export interface RecordingStopped {
+  meeting_id: number;
+  tracks: TrackSummary[];
+}
+
+export interface Speaker {
+  id: number;
+  name: string;
+  /** Speaker color slot 1-8 (CSS --speaker-N). */
+  color: number;
+}
+
+export type MeetingStatus = "recording" | "processing" | "done" | "failed";
+
+/** A meeting in the Library (Rust: commands::MeetingSummary). */
+export interface MeetingSummary {
+  id: number;
+  title: string;
+  /** Unix epoch milliseconds. */
+  started_at: number;
+  duration_ms: number;
+  status: MeetingStatus;
+  dir: string;
+  speakers: Speaker[];
+}
+
+/** Settings > Sources (Rust: commands::SourceSettings). */
+export interface SourceSettings {
+  available: SourceInfo[];
+  mic: string | null;
+  /** null = don't record system audio. */
+  system: string | null;
 }
 
 type NoArgs = Record<string, never>;
@@ -52,15 +90,26 @@ type NoArgs = Record<string, never>;
 export interface Commands {
   app_info: { args: NoArgs; result: AppInfo };
   list_sources: { args: NoArgs; result: SourceInfo[] };
-  start_recording: { args: { sourceIds: string[] }; result: RecordingStarted };
+  start_recording: { args: NoArgs; result: RecordingStarted };
+  current_recording: { args: NoArgs; result: RecordingStarted | null };
   pause_recording: { args: NoArgs; result: null };
   resume_recording: { args: NoArgs; result: null };
-  stop_recording: { args: NoArgs; result: TrackSummary[] };
+  set_source_muted: { args: { sourceId: string; muted: boolean }; result: null };
+  stop_recording: { args: NoArgs; result: RecordingStopped };
+  rename_meeting: { args: { id: number; title: string }; result: null };
+  get_recording_sources: { args: NoArgs; result: SourceSettings };
+  set_recording_sources: { args: { mic: string; system: string | null }; result: null };
+  start_source_monitor: { args: { sourceIds: string[] }; result: null };
+  stop_source_monitor: { args: NoArgs; result: null };
+  list_meetings: { args: NoArgs; result: MeetingSummary[] };
+  delete_meeting: { args: { id: number }; result: boolean };
 }
 
 /** Event name -> payload type. */
 export interface Events {
   "audio:level": LevelEvent;
+  /** Test meters in Settings > Sources. */
+  "audio:monitor-level": LevelEvent;
 }
 
 type ArgsOf<K extends keyof Commands> = Commands[K]["args"] extends NoArgs

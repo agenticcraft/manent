@@ -5,6 +5,7 @@
 mod capture;
 mod flac;
 mod levels;
+mod monitor;
 mod recorder;
 mod ring;
 mod sources;
@@ -20,5 +21,6 @@ mod platform;
 mod platform;
 
 pub use capture::list_sources;
+pub use monitor::Monitor;
 pub use recorder::{Recording, TrackSummary};
-pub use sources::SourceInfo;
+pub use sources::{SourceInfo, SourceKind};

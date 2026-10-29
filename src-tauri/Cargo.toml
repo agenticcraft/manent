@@ -32,6 +32,7 @@ rtrb = "0.4.1"
 thiserror = "2.0.21"
 flacenc = "0.5"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+tokio = { version = "1.54.1", features = ["sync"] }
 
 
 # Optimise dependencies (FLAC encoder, audio) in dev builds too, so `tauri dev` keeps up in real time.

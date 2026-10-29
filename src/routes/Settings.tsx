@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { SourcesSettings } from "@/components/SourcesSettings";
 import { call, type AppInfo } from "@/lib/ipc";
 
 const SECTIONS = [
-  { title: "Sources", text: "Choose the microphone and the output device to record." },
+  {
+    title: "Sources",
+    text: "Choose the microphone and the system audio to record.",
+    body: <SourcesSettings />,
+  },
   {
     title: "Transcription",
     text: "Model status and download. Dutch and English are detected automatically.",
@@ -11,7 +16,7 @@ const SECTIONS = [
   { title: "Storage", text: "Where recordings are kept and in which format." },
 ];
 
-/** Settings (doc-3 screen 5). Sections are filled in by VRT-9 and VRT-27. */
+/** Settings (doc-3 screen 5). Transcription and Storage are filled in by VRT-27. */
 export function Settings() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +33,7 @@ export function Settings() {
           <section key={s.title} className="py-5 first:pt-0">
             <h2 className="text-sm font-medium">{s.title}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{s.text}</p>
+            {"body" in s && s.body}
           </section>
         ))}
         <section className="py-5" aria-label="About">

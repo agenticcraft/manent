@@ -178,6 +178,15 @@ impl Db {
         Ok(())
     }
 
+    pub async fn set_meeting_dir(&self, id: i64, dir: &str) -> Result<()> {
+        sqlx::query("UPDATE meetings SET dir = ? WHERE id = ?")
+            .bind(dir)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn rename_meeting(&self, id: i64, title: &str) -> Result<()> {
         sqlx::query("UPDATE meetings SET title = ? WHERE id = ?")
             .bind(title)
@@ -211,6 +220,21 @@ impl Db {
             .await?
             .rows_affected();
         Ok(n > 0)
+    }
+
+    /// Named speakers per meeting (distinct, by name), for the Library's speaker avatars.
+    pub async fn meeting_speakers(&self) -> Result<Vec<(i64, Speaker)>> {
+        let rows: Vec<(i64, i64, String, i64)> = sqlx::query_as(
+            "SELECT DISTINCT s.meeting_id, sp.id, sp.name, sp.color
+             FROM segments s JOIN speakers sp ON sp.id = s.speaker_id
+             ORDER BY s.meeting_id, sp.name COLLATE NOCASE",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(m, id, name, color)| (m, Speaker { id, name, color }))
+            .collect())
     }
 
     // ---------------------------------------------------------------- tracks
@@ -555,6 +579,7 @@ mod tests {
         );
         assert_eq!(list[1].status, "recording");
         db.rename_meeting(a, "Daily standup").await.unwrap();
+        db.set_meeting_dir(a, "/m/1").await.unwrap();
         db.finish_meeting(a, 90_000, "done").await.unwrap();
         let m = db.get_meeting(a).await.unwrap().unwrap();
         assert_eq!(
@@ -564,6 +589,49 @@ mod tests {
         assert!(db.delete_meeting(a).await.unwrap());
         assert!(!db.delete_meeting(a).await.unwrap());
         assert!(db.get_meeting(a).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn meeting_speakers_are_distinct_and_per_meeting() {
+        let db = db().await;
+        let m1 = db.create_meeting("a", 1, "/a").await.unwrap();
+        let m2 = db.create_meeting("b", 2, "/b").await.unwrap();
+        let anna = db.create_speaker("anna", 3).await.unwrap();
+        let bram = db.create_speaker("Bram", 1).await.unwrap();
+        let named = |id, start| NewSegment {
+            speaker_id: Some(id),
+            ..seg(start, "x")
+        };
+        db.insert_segments(
+            m1,
+            Pass::Final,
+            &[
+                named(bram, 0),
+                named(anna, 1),
+                named(bram, 2),
+                seg(3, "unnamed"),
+            ],
+        )
+        .await
+        .unwrap();
+        db.insert_segments(m2, Pass::Final, &[named(anna, 0)])
+            .await
+            .unwrap();
+        let got: Vec<_> = db
+            .meeting_speakers()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(m, s)| (m, s.name))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (m1, "anna".into()),
+                (m1, "Bram".into()),
+                (m2, "anna".into())
+            ]
+        );
     }
 
     #[tokio::test]

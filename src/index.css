@@ -64,6 +64,8 @@
 }
 
 :root {
+  /* Native controls (select, scrollbars) follow the theme. */
+  color-scheme: light;
   --radius: 0.5rem;
 
   /* zinc neutrals */
@@ -115,6 +117,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.16 0.005 285.823);
   --foreground: oklch(0.96 0 0);
   --card: oklch(0.21 0.006 285.885);

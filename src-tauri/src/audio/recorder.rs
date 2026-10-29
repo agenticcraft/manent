@@ -43,6 +43,8 @@ pub struct LevelEvent {
     pub rms_db: f32,
     pub peak_db: f32,
     pub paused: bool,
+    /// A muted source records silence (tracks stay aligned); its level reflects the input.
+    pub muted: bool,
 }
 
 /// What was written for one source.
@@ -82,6 +84,8 @@ pub struct Track {
     reader: RingReader,
     writer: FlacWriter,
     buf: Vec<f32>,
+    muted: bool,
+    silence: Vec<f32>,
 }
 
 impl Track {
@@ -99,15 +103,28 @@ impl Track {
             reader,
             writer,
             buf: Vec::with_capacity(sample_rate as usize * channels as usize / 10),
+            muted: false,
+            silence: Vec::new(),
         })
     }
 
-    /// Drain the ring; write unless paused; return the level of what arrived.
+    pub fn set_muted(&mut self, muted: bool) {
+        self.muted = muted;
+    }
+
+    /// Drain the ring; write unless paused (silence instead of audio while muted); return the
+    /// level of what arrived.
     pub fn tick(&mut self, paused: bool) -> Result<LevelEvent, RecorderError> {
         self.buf.clear();
         self.reader.drain_into(&mut self.buf);
         if !paused {
-            self.writer.write(&self.buf)?;
+            if self.muted {
+                self.silence.clear();
+                self.silence.resize(self.buf.len(), 0.0);
+                self.writer.write(&self.silence)?;
+            } else {
+                self.writer.write(&self.buf)?;
+            }
         }
         let level = levels::measure(&self.buf);
         Ok(LevelEvent {
@@ -116,6 +133,7 @@ impl Track {
             rms_db: level.rms_db,
             peak_db: level.peak_db,
             paused,
+            muted: self.muted,
         })
     }
 
@@ -136,6 +154,7 @@ impl Track {
 enum Control {
     Pause,
     Resume,
+    SetMuted(String, bool),
     Stop,
 }
 
@@ -216,6 +235,13 @@ impl Recording {
         let _ = self.control.send(Control::Resume);
     }
 
+    /// Mute or unmute one source by id; a muted source records silence.
+    pub fn set_muted(&self, source_id: &str, muted: bool) {
+        let _ = self
+            .control
+            .send(Control::SetMuted(source_id.to_string(), muted));
+    }
+
     /// Stop capturing, finish the files and return what was written.
     pub fn stop(mut self) -> Result<Vec<TrackSummary>, RecorderError> {
         let _ = self.control.send(Control::Stop);
@@ -244,6 +270,11 @@ fn run_loop(
         match control.recv_timeout(TICK) {
             Ok(Control::Pause) => paused = true,
             Ok(Control::Resume) => paused = false,
+            Ok(Control::SetMuted(id, muted)) => {
+                for t in tracks.iter_mut().filter(|t| t.info.id == id) {
+                    t.set_muted(muted);
+                }
+            }
             Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
@@ -293,7 +324,9 @@ mod tests {
             1,
         )
         .unwrap();
-        let block = vec![0.25f32; 1600]; // 100 ms
+        let block: Vec<f32> = (0..1600)
+            .map(|i| if i % 2 == 0 { 0.25 } else { -0.25 })
+            .collect(); // 100 ms
         for paused in [false, false, true, true, true, false] {
             w.push(&block);
             let ev = track.tick(paused).unwrap();
@@ -307,6 +340,46 @@ mod tests {
         let reader = claxon::FlacReader::open(&summary.file).unwrap();
         assert_eq!(reader.streaminfo().samples, Some(3 * 1600));
         assert_eq!(summary.dropped_samples, 0);
+    }
+
+    #[test]
+    fn muted_audio_is_recorded_as_silence_of_the_same_length() {
+        let dir = tempfile_dir();
+        let (mut w, r) = sample_ring(16_000);
+        let mut track = Track::new(
+            info("mic", SourceKind::Mic),
+            dir.join("mic.flac"),
+            r,
+            16_000,
+            1,
+        )
+        .unwrap();
+        let block: Vec<f32> = (0..1600)
+            .map(|i| if i % 2 == 0 { 0.25 } else { -0.25 })
+            .collect();
+        for muted in [false, true, true, false] {
+            track.set_muted(muted);
+            w.push(&block);
+            let ev = track.tick(false).unwrap();
+            assert_eq!(ev.muted, muted);
+            assert!(
+                (ev.rms_db - -12.04).abs() < 0.1,
+                "level still shows the input"
+            );
+        }
+        let summary = track.finish().unwrap();
+        let mut reader = claxon::FlacReader::open(&summary.file).unwrap();
+        let samples: Vec<i32> = reader.samples().map(|s| s.unwrap()).collect();
+        assert_eq!(
+            samples.len(),
+            4 * 1600,
+            "muted time is kept, so tracks stay aligned"
+        );
+        assert!(
+            samples[1600..3200 * 2 - 1600].iter().all(|&s| s == 0),
+            "muted stretch is silent"
+        );
+        assert!(samples[..1600].iter().all(|&s| s != 0) && samples[4800..].iter().all(|&s| s != 0));
     }
 
     #[test]

@@ -91,14 +91,15 @@ try:
         )
         invoke = ("const done = arguments[arguments.length - 1];"
                   "window.__TAURI_INTERNALS__.invoke(arguments[0], arguments[1] || {}).then(done, e => done({error: String(e)}));")
-        started = js_async(invoke, "start_recording", {"sourceIds": ids})
+        started = js_async(invoke, "start_recording")
         check(isinstance(started, dict) and "meeting_id" in started, f"start_recording -> {started}")
         time.sleep(1.5)
         js_async(invoke, "pause_recording")
         time.sleep(1.0)
         js_async(invoke, "resume_recording")
         time.sleep(1.5)
-        summary = js_async(invoke, "stop_recording")
+        stopped = js_async(invoke, "stop_recording")
+        summary = stopped.get("tracks") if isinstance(stopped, dict) else stopped
         levels = js("return window.__levels")
         rate = len(levels) / len(ids) / 4.0 if levels else 0
         check(isinstance(summary, list) and len(summary) == 2, f"stop_recording returned {len(summary) if isinstance(summary, list) else summary} tracks")
