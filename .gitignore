@@ -48,3 +48,8 @@ Thumbs.db
 *.mov
 *.wmv
 
+
+# Audio recordings and spike output
+*.wav
+*.flac
+spikes/*/recordings/

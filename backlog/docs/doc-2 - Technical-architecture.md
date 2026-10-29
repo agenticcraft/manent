@@ -2,8 +2,8 @@
 id: doc-2
 title: Technical architecture
 type: specification
-created_date: '2026-10-29 12:18'
-updated_date: '2026-10-29 12:20'
+created_date: 2026-10-29 12:18
+updated_date: '2026-10-29T14:27:00Z'
 ---
 ## 1. Technical foundation
 
@@ -13,13 +13,13 @@ updated_date: '2026-10-29 12:20'
 - **Backend (Rust):** audio capture, encoding, storage, and managing the transcription engine. It talks to the UI through Tauri commands, which carry requests, and events, which carry streams such as audio levels and transcript segments.
 
 ### 1.2 Audio capture layer (Rust module `audio/`)
-Each **source** is either a mic input or a system-output loopback, and each one is captured as its own track:
+Each **source** is either a mic input or a system-output loopback, and each one is captured as its own track. **One crate, `cpal` (0.18 or newer), covers both kinds on every desktop OS** (validated on Linux in VRT-1):
 
 | OS | Mic | System audio (loopback) |
 |---|---|---|
-| Linux | `cpal` (PipeWire/Pulse) | Capture the sink's **monitor** source through PipeWire (`pipewire-rs`), or through cpal on the pulse host |
-| Windows | `cpal` WASAPI | WASAPI **loopback**, which cpal supports on output devices |
-| macOS | `cpal` CoreAudio | **Core Audio process taps** (macOS 14.4+), with ScreenCaptureKit as the fallback. Needs a small native shim via `objc2` |
+| Linux | `cpal` PipeWire host (feature `pipewire`) | `cpal` PipeWire host: an input stream on an output (sink) device sets `stream.capture.sink`, which is loopback |
+| Windows | `cpal` WASAPI | `cpal` WASAPI loopback: an input stream on an output device |
+| macOS | `cpal` CoreAudio | `cpal` CoreAudio loopback (an input stream on an output device, using an aggregate device). Verify the permissions and the minimum macOS version in VRT-12 |
 | Android (later) | AudioRecord | `AudioPlaybackCapture` (MediaProjection), which only works for apps that allow capture |
 | iOS (later) | AVAudioEngine | Not possible because of OS limits, so mic only |
 
@@ -30,6 +30,7 @@ Design:
   1. **Recorder:** writes each track to its own file at the native sample rate. It writes **FLAC** while recording and can export to Opus or M4A afterwards. An optional mixdown file is used for playback.
   2. **ASR feed:** resamples to **16 kHz mono f32** (`rubato`) and sends 20–40 ms chunks to the transcription engine.
 - Live level meters (RMS and peak) are sent to the UI at about 20 Hz.
+- **Track alignment:** streams start a few ms apart (about 20 ms measured), so each track stores the timestamp of its first callback (`InputCallbackInfo`) to align the tracks. Over 5 minutes, VRT-1 measured no clock drift between mic and system tracks.
 - **Key design advantage:** because the mic and system audio are separate tracks, the app already knows that speech on the mic track is the **local user ("Me")**. Diarization therefore only has to separate the remote voices on the system track, which makes the speaker labels much more accurate. Echo and bleed, where the mic picks up the speakers, are handled by preferring the system-track label when two segments overlap. Headphones avoid the problem entirely.
 
 ### 1.3 Transcription engine: LocalAI with the `parakeet-cpp` backend
