@@ -1,0 +1,797 @@
+//! SQLite storage (doc-2 §1.5): schema in `migrations/`, query functions here.
+//! Times are milliseconds (absolute since the Unix epoch, or relative to a meeting's start).
+
+use std::path::Path;
+use std::str::FromStr;
+
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::{FromRow, SqlitePool};
+
+#[derive(Debug, thiserror::Error)]
+pub enum DbError {
+    #[error(transparent)]
+    Sql(#[from] sqlx::Error),
+    #[error(transparent)]
+    Migrate(#[from] sqlx::migrate::MigrateError),
+    #[error("settings value: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
+pub type Result<T> = std::result::Result<T, DbError>;
+
+/// Which of the three transcript passes produced a segment (doc-2 §1.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Pass {
+    Caption,
+    Rolling,
+    Final,
+}
+
+impl Pass {
+    fn as_str(self) -> &'static str {
+        match self {
+            Pass::Caption => "caption",
+            Pass::Rolling => "rolling",
+            Pass::Final => "final",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
+pub struct Meeting {
+    pub id: i64,
+    pub title: String,
+    pub started_at: i64,
+    pub duration_ms: i64,
+    pub status: String,
+    pub dir: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
+pub struct Track {
+    pub id: i64,
+    pub meeting_id: i64,
+    pub source_kind: String,
+    pub source_id: String,
+    pub device_name: String,
+    pub path: String,
+    pub seconds: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewTrack<'a> {
+    pub source_kind: &'a str,
+    pub source_id: &'a str,
+    pub device_name: &'a str,
+    pub path: &'a str,
+    pub seconds: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
+pub struct Segment {
+    pub id: i64,
+    pub meeting_id: i64,
+    pub track_id: Option<i64>,
+    pub pass: String,
+    pub speaker_id: Option<i64>,
+    pub speaker_label: Option<String>,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+    pub words_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NewSegment {
+    pub track_id: Option<i64>,
+    pub speaker_id: Option<i64>,
+    pub speaker_label: Option<String>,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+    pub words_json: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
+pub struct SearchHit {
+    pub meeting_id: i64,
+    pub segment_id: i64,
+    pub start_ms: i64,
+    /// Matching words wrapped in `[` `]`.
+    pub snippet: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
+pub struct Speaker {
+    pub id: i64,
+    pub name: String,
+    pub color: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VoiceSample {
+    pub id: i64,
+    pub speaker_id: i64,
+    pub embedding: Vec<f32>,
+    pub clean_seconds: f64,
+}
+
+#[derive(Clone)]
+pub struct Db {
+    pool: SqlitePool,
+}
+
+impl Db {
+    /// Open (or create) the database file and bring the schema up to date.
+    pub async fn open(path: &Path) -> Result<Self> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await?;
+        Self::with_pool(pool).await
+    }
+
+    /// A private in-memory database (tests). One connection, because each in-memory
+    /// connection is its own database.
+    pub async fn open_in_memory() -> Result<Self> {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")?.foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await?;
+        Self::with_pool(pool).await
+    }
+
+    async fn with_pool(pool: SqlitePool) -> Result<Self> {
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        Ok(Self { pool })
+    }
+
+    // ---------------------------------------------------------------- meetings
+
+    pub async fn create_meeting(&self, title: &str, started_at: i64, dir: &str) -> Result<i64> {
+        let id = sqlx::query("INSERT INTO meetings (title, started_at, dir) VALUES (?, ?, ?)")
+            .bind(title)
+            .bind(started_at)
+            .bind(dir)
+            .execute(&self.pool)
+            .await?
+            .last_insert_rowid();
+        Ok(id)
+    }
+
+    pub async fn finish_meeting(&self, id: i64, duration_ms: i64, status: &str) -> Result<()> {
+        sqlx::query("UPDATE meetings SET duration_ms = ?, status = ? WHERE id = ?")
+            .bind(duration_ms)
+            .bind(status)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn rename_meeting(&self, id: i64, title: &str) -> Result<()> {
+        sqlx::query("UPDATE meetings SET title = ? WHERE id = ?")
+            .bind(title)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Newest first.
+    pub async fn list_meetings(&self) -> Result<Vec<Meeting>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM meetings ORDER BY started_at DESC, id DESC")
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn get_meeting(&self, id: i64) -> Result<Option<Meeting>> {
+        Ok(sqlx::query_as("SELECT * FROM meetings WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    /// Delete a meeting with its tracks and segments. Returns false if it didn't exist.
+    pub async fn delete_meeting(&self, id: i64) -> Result<bool> {
+        let n = sqlx::query("DELETE FROM meetings WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        Ok(n > 0)
+    }
+
+    // ---------------------------------------------------------------- tracks
+
+    pub async fn add_track(&self, meeting_id: i64, t: &NewTrack<'_>) -> Result<i64> {
+        let id = sqlx::query(
+            "INSERT INTO tracks (meeting_id, source_kind, source_id, device_name, path, seconds)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(meeting_id)
+        .bind(t.source_kind)
+        .bind(t.source_id)
+        .bind(t.device_name)
+        .bind(t.path)
+        .bind(t.seconds)
+        .execute(&self.pool)
+        .await?
+        .last_insert_rowid();
+        Ok(id)
+    }
+
+    pub async fn list_tracks(&self, meeting_id: i64) -> Result<Vec<Track>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM tracks WHERE meeting_id = ? ORDER BY id")
+                .bind(meeting_id)
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
+    // ---------------------------------------------------------------- segments
+
+    pub async fn insert_segments(
+        &self,
+        meeting_id: i64,
+        pass: Pass,
+        segments: &[NewSegment],
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        insert_segments_tx(&mut tx, meeting_id, pass, segments).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Replace the segments of `replaced` passes that start within `[from_ms, to_ms)` by
+    /// `segments` of `pass`, atomically (a rolling pass replacing captions, a final pass
+    /// replacing everything).
+    pub async fn replace_segments(
+        &self,
+        meeting_id: i64,
+        replaced: &[Pass],
+        from_ms: i64,
+        to_ms: i64,
+        pass: Pass,
+        segments: &[NewSegment],
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for p in replaced {
+            sqlx::query(
+                "DELETE FROM segments
+                 WHERE meeting_id = ? AND pass = ? AND start_ms >= ? AND start_ms < ?",
+            )
+            .bind(meeting_id)
+            .bind(p.as_str())
+            .bind(from_ms)
+            .bind(to_ms)
+            .execute(&mut *tx)
+            .await?;
+        }
+        insert_segments_tx(&mut tx, meeting_id, pass, segments).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// All segments of a meeting in time order.
+    pub async fn list_segments(&self, meeting_id: i64) -> Result<Vec<Segment>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM segments WHERE meeting_id = ? ORDER BY start_ms, id")
+                .bind(meeting_id)
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn set_segment_speaker(
+        &self,
+        segment_id: i64,
+        speaker_id: Option<i64>,
+    ) -> Result<()> {
+        sqlx::query("UPDATE segments SET speaker_id = ? WHERE id = ?")
+            .bind(speaker_id)
+            .bind(segment_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------- search
+
+    /// Full-text search over all transcripts (prefix match per word, diacritics ignored).
+    pub async fn search(&self, query: &str, limit: i64) -> Result<Vec<SearchHit>> {
+        let Some(fts) = fts_query(query) else {
+            return Ok(Vec::new());
+        };
+        Ok(sqlx::query_as(
+            "SELECT s.meeting_id, s.id AS segment_id, s.start_ms,
+                    snippet(segments_fts, 0, '[', ']', '…', 12) AS snippet
+             FROM segments_fts JOIN segments s ON s.id = segments_fts.rowid
+             WHERE segments_fts MATCH ?
+             ORDER BY rank LIMIT ?",
+        )
+        .bind(fts)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    // ---------------------------------------------------------------- speakers
+
+    pub async fn create_speaker(&self, name: &str, color: i64) -> Result<i64> {
+        let id = sqlx::query("INSERT INTO speakers (name, color) VALUES (?, ?)")
+            .bind(name)
+            .bind(color)
+            .execute(&self.pool)
+            .await?
+            .last_insert_rowid();
+        Ok(id)
+    }
+
+    pub async fn list_speakers(&self) -> Result<Vec<Speaker>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM speakers ORDER BY name COLLATE NOCASE")
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn rename_speaker(&self, id: i64, name: &str) -> Result<()> {
+        sqlx::query("UPDATE speakers SET name = ? WHERE id = ?")
+            .bind(name)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Delete a person and (by cascade) all their voice samples.
+    pub async fn delete_speaker(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM speakers WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Move `merged`'s voice samples and segments to `keep`, then delete `merged`.
+    pub async fn merge_speakers(&self, keep: i64, merged: i64) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for table in ["voice_samples", "segments"] {
+            sqlx::query(&format!(
+                "UPDATE {table} SET speaker_id = ? WHERE speaker_id = ?"
+            ))
+            .bind(keep)
+            .bind(merged)
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query("DELETE FROM speakers WHERE id = ?")
+            .bind(merged)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn add_voice_sample(
+        &self,
+        speaker_id: i64,
+        embedding: &[f32],
+        encoder_id: &str,
+        clean_seconds: f64,
+        meeting_id: Option<i64>,
+        created_at: i64,
+    ) -> Result<i64> {
+        let blob: Vec<u8> = embedding.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let id = sqlx::query(
+            "INSERT INTO voice_samples
+                 (speaker_id, embedding, encoder_id, clean_seconds, meeting_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(speaker_id)
+        .bind(blob)
+        .bind(encoder_id)
+        .bind(clean_seconds)
+        .bind(meeting_id)
+        .bind(created_at)
+        .execute(&self.pool)
+        .await?
+        .last_insert_rowid();
+        Ok(id)
+    }
+
+    /// Voice samples made by one encoder (matching only compares like with like).
+    pub async fn voice_samples(&self, encoder_id: &str) -> Result<Vec<VoiceSample>> {
+        let rows: Vec<(i64, i64, Vec<u8>, f64)> = sqlx::query_as(
+            "SELECT id, speaker_id, embedding, clean_seconds FROM voice_samples
+             WHERE encoder_id = ? ORDER BY id",
+        )
+        .bind(encoder_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, speaker_id, blob, clean_seconds)| VoiceSample {
+                id,
+                speaker_id,
+                embedding: blob
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b))
+                    .collect(),
+                clean_seconds,
+            })
+            .collect())
+    }
+
+    // ---------------------------------------------------------------- settings
+
+    pub async fn get_setting<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|(v,)| serde_json::from_str(&v).map_err(DbError::from))
+            .transpose()
+    }
+
+    pub async fn set_setting<T: Serialize>(&self, key: &str, value: &T) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(serde_json::to_string(value)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+async fn insert_segments_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    meeting_id: i64,
+    pass: Pass,
+    segments: &[NewSegment],
+) -> Result<()> {
+    for s in segments {
+        sqlx::query(
+            "INSERT INTO segments (meeting_id, track_id, pass, speaker_id, speaker_label,
+                                   start_ms, end_ms, text, words_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(meeting_id)
+        .bind(s.track_id)
+        .bind(pass.as_str())
+        .bind(s.speaker_id)
+        .bind(&s.speaker_label)
+        .bind(s.start_ms)
+        .bind(s.end_ms)
+        .bind(&s.text)
+        .bind(&s.words_json)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Turn user input into a safe FTS5 query: every word quoted, prefix-matched, AND-ed.
+fn fts_query(input: &str) -> Option<String> {
+    let terms: Vec<String> = input
+        .split_whitespace()
+        .map(|w| w.replace('"', ""))
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{w}\"*"))
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn db() -> Db {
+        Db::open_in_memory().await.unwrap()
+    }
+
+    fn seg(start_ms: i64, text: &str) -> NewSegment {
+        NewSegment {
+            start_ms,
+            end_ms: start_ms + 1000,
+            text: text.into(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn schema_has_the_doc_2_tables() {
+        let db = db().await;
+        let tables: Vec<(String,)> =
+            sqlx::query_as("SELECT name FROM sqlite_master WHERE type IN ('table') ORDER BY name")
+                .fetch_all(&db.pool)
+                .await
+                .unwrap();
+        let names: Vec<_> = tables.into_iter().map(|(n,)| n).collect();
+        for t in [
+            "meetings",
+            "tracks",
+            "segments",
+            "speakers",
+            "voice_samples",
+            "settings",
+            "segments_fts",
+        ] {
+            assert!(
+                names.iter().any(|n| n == t),
+                "missing table {t} in {names:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn meetings_create_list_rename_finish_delete() {
+        let db = db().await;
+        let a = db.create_meeting("Standup", 1_000, "/m/a").await.unwrap();
+        let b = db.create_meeting("Review", 2_000, "/m/b").await.unwrap();
+        let list = db.list_meetings().await.unwrap();
+        assert_eq!(
+            list.iter().map(|m| m.id).collect::<Vec<_>>(),
+            [b, a],
+            "newest first"
+        );
+        assert_eq!(list[1].status, "recording");
+        db.rename_meeting(a, "Daily standup").await.unwrap();
+        db.finish_meeting(a, 90_000, "done").await.unwrap();
+        let m = db.get_meeting(a).await.unwrap().unwrap();
+        assert_eq!(
+            (m.title.as_str(), m.duration_ms, m.status.as_str()),
+            ("Daily standup", 90_000, "done")
+        );
+        assert!(db.delete_meeting(a).await.unwrap());
+        assert!(!db.delete_meeting(a).await.unwrap());
+        assert!(db.get_meeting(a).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn invalid_status_is_rejected() {
+        let db = db().await;
+        let a = db.create_meeting("x", 1, "/m").await.unwrap();
+        assert!(db.finish_meeting(a, 1, "bogus").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn deleting_a_meeting_cascades_to_tracks_and_segments() {
+        let db = db().await;
+        let m = db.create_meeting("m", 1, "/m").await.unwrap();
+        let track = NewTrack {
+            source_kind: "mic",
+            source_id: "pipewire:x",
+            device_name: "Mic",
+            path: "/m/mic.flac",
+            seconds: 3.5,
+        };
+        let t = db.add_track(m, &track).await.unwrap();
+        assert_eq!(db.list_tracks(m).await.unwrap()[0].id, t);
+        db.insert_segments(m, Pass::Final, &[seg(0, "hallo wereld")])
+            .await
+            .unwrap();
+        db.delete_meeting(m).await.unwrap();
+        assert!(db.list_tracks(m).await.unwrap().is_empty());
+        assert!(db.list_segments(m).await.unwrap().is_empty());
+        assert!(
+            db.search("hallo", 10).await.unwrap().is_empty(),
+            "fts row removed too"
+        );
+    }
+
+    #[tokio::test]
+    async fn rolling_pass_replaces_captions_in_its_window_only() {
+        let db = db().await;
+        let m = db.create_meeting("m", 1, "/m").await.unwrap();
+        db.insert_segments(
+            m,
+            Pass::Caption,
+            &[seg(0, "a"), seg(30_000, "b"), seg(70_000, "c")],
+        )
+        .await
+        .unwrap();
+        db.replace_segments(
+            m,
+            &[Pass::Caption],
+            0,
+            60_000,
+            Pass::Rolling,
+            &[seg(0, "A"), seg(31_000, "B")],
+        )
+        .await
+        .unwrap();
+        let s = db.list_segments(m).await.unwrap();
+        let got: Vec<_> = s
+            .iter()
+            .map(|x| (x.text.as_str(), x.pass.as_str()))
+            .collect();
+        assert_eq!(got, [("A", "rolling"), ("B", "rolling"), ("c", "caption")]);
+    }
+
+    #[tokio::test]
+    async fn search_finds_dutch_and_english_ignoring_diacritics_and_case() {
+        let db = db().await;
+        let m1 = db.create_meeting("m1", 1, "/m1").await.unwrap();
+        let m2 = db.create_meeting("m2", 2, "/m2").await.unwrap();
+        db.insert_segments(
+            m1,
+            Pass::Final,
+            &[
+                seg(0, "We hebben één ideeën-lijst"),
+                seg(5_000, "De begroting is rond"),
+            ],
+        )
+        .await
+        .unwrap();
+        db.insert_segments(
+            m2,
+            Pass::Final,
+            &[seg(1_000, "The Budget meeting went well")],
+        )
+        .await
+        .unwrap();
+
+        let hits = db.search("ideeen", 10).await.unwrap();
+        assert_eq!(hits.len(), 1, "diacritics ignored");
+        assert_eq!(hits[0].meeting_id, m1);
+        assert!(hits[0].snippet.contains("[ideeën]"), "{}", hits[0].snippet);
+        assert_eq!(
+            db.search("BUDG", 10).await.unwrap()[0].meeting_id,
+            m2,
+            "prefix, case-insensitive"
+        );
+        assert_eq!(
+            db.search("begroting rond", 10).await.unwrap().len(),
+            1,
+            "all words"
+        );
+        assert!(db.search("begroting budget", 10).await.unwrap().is_empty());
+        assert!(db.search("  ", 10).await.unwrap().is_empty());
+        assert!(
+            db.search("\"oops", 10).await.is_ok(),
+            "quotes can't break the query"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_follows_updates() {
+        let db = db().await;
+        let m = db.create_meeting("m", 1, "/m").await.unwrap();
+        db.insert_segments(m, Pass::Caption, &[seg(0, "oude tekst")])
+            .await
+            .unwrap();
+        db.replace_segments(
+            m,
+            &[Pass::Caption],
+            0,
+            10_000,
+            Pass::Final,
+            &[seg(0, "nieuwe tekst")],
+        )
+        .await
+        .unwrap();
+        assert!(db.search("oude", 10).await.unwrap().is_empty());
+        assert_eq!(db.search("nieuwe", 10).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn speakers_samples_merge_and_delete() {
+        let db = db().await;
+        let m = db.create_meeting("m", 1, "/m").await.unwrap();
+        let bram = db.create_speaker("Bram", 1).await.unwrap();
+        let dup = db.create_speaker("bram (2)", 2).await.unwrap();
+        db.add_voice_sample(bram, &[0.5, -0.25], "sha256:enc", 30.0, Some(m), 10)
+            .await
+            .unwrap();
+        db.add_voice_sample(dup, &[0.1, 0.2], "sha256:enc", 12.0, Some(m), 11)
+            .await
+            .unwrap();
+        db.add_voice_sample(dup, &[9.0], "sha256:other", 5.0, None, 12)
+            .await
+            .unwrap();
+        db.insert_segments(
+            m,
+            Pass::Final,
+            &[NewSegment {
+                speaker_id: Some(dup),
+                ..seg(0, "hoi")
+            }],
+        )
+        .await
+        .unwrap();
+
+        let samples = db.voice_samples("sha256:enc").await.unwrap();
+        assert_eq!(samples.len(), 2, "only the requested encoder");
+        assert_eq!(samples[0].embedding, [0.5, -0.25], "embedding round-trips");
+
+        db.merge_speakers(bram, dup).await.unwrap();
+        assert_eq!(db.list_speakers().await.unwrap().len(), 1);
+        assert!(
+            db.voice_samples("sha256:enc")
+                .await
+                .unwrap()
+                .iter()
+                .all(|s| s.speaker_id == bram)
+        );
+        assert_eq!(db.list_segments(m).await.unwrap()[0].speaker_id, Some(bram));
+
+        db.rename_speaker(bram, "Bram Jansen").await.unwrap();
+        assert_eq!(db.list_speakers().await.unwrap()[0].name, "Bram Jansen");
+        db.delete_speaker(bram).await.unwrap();
+        assert!(
+            db.voice_samples("sha256:enc").await.unwrap().is_empty(),
+            "voice data deleted"
+        );
+        assert!(db.voice_samples("sha256:other").await.unwrap().is_empty());
+        assert_eq!(
+            db.list_segments(m).await.unwrap()[0].speaker_id,
+            None,
+            "segments kept, unnamed"
+        );
+    }
+
+    #[tokio::test]
+    async fn settings_round_trip_json() {
+        let db = db().await;
+        assert_eq!(db.get_setting::<String>("mic").await.unwrap(), None);
+        db.set_setting("mic", &"pipewire:input_default")
+            .await
+            .unwrap();
+        db.set_setting("mic", &"pipewire:other").await.unwrap();
+        assert_eq!(
+            db.get_setting::<String>("mic").await.unwrap().as_deref(),
+            Some("pipewire:other")
+        );
+        db.set_setting("latency", &vec![1, 2]).await.unwrap();
+        assert_eq!(
+            db.get_setting::<Vec<i32>>("latency").await.unwrap(),
+            Some(vec![1, 2])
+        );
+    }
+
+    #[test]
+    fn fts_query_quotes_and_prefixes_terms() {
+        assert_eq!(
+            fts_query("hallo wereld").as_deref(),
+            Some("\"hallo\"* \"wereld\"*")
+        );
+        assert_eq!(fts_query("a\"b").as_deref(), Some("\"ab\"*"));
+        assert_eq!(fts_query("   "), None);
+    }
+
+    #[tokio::test]
+    async fn file_database_persists_and_migrates_once() {
+        let dir = crate::test_util::temp_dir();
+        let path = dir.join("veritas.db");
+        {
+            let db = Db::open(&path).await.unwrap();
+            db.create_meeting("kept", 1, "/m").await.unwrap();
+        }
+        let db = Db::open(&path).await.unwrap();
+        assert_eq!(db.list_meetings().await.unwrap()[0].title, "kept");
+        let migrations: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM _sqlx_migrations")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(migrations.0, 1);
+    }
+}

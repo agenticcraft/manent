@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-29T17:04:00Z'
-updated_date: '2026-10-29T18:45:00Z'
+updated_date: '2026-10-29T21:26:00Z'
 labels:
   - spike
   - transcription
@@ -100,6 +100,13 @@ Language handling: the language parameter is ignored by parakeet 0.6B v3 (auto, 
 Licenses (NOTICE-parakeet-bundle-standard.txt): asr parakeet-tdt-0.6b-v3 CC-BY-4.0; diar Nemotron-3-Diarization OpenMDW-1.1 (permissive; keep licence + notices when distributing; terminates on patent/copyright suits about the model); voice WeSpeaker CC-BY-4.0; vad Silero MIT; ced CED-small Apache-2.0 per model card but upstream inconsistent (GPL-3.0 code, CC-BY-4.0 checkpoint records) - not used by Veritas. In-app download from Hugging Face is not redistribution; show attributions in the app and ship the NOTICE if the model is ever bundled.
 
 Decision - model set for NL+EN: parakeet-cpp-bundle-standard only (1.1 GB): live captions via app-side 4-8 s chunks, rolling and final offline passes, diarization and speaker embeddings. Not needed: nemotron-3.5 streaming (938 MB), realtime_eou_120m (254 MB), LocalAI realtime WebSocket, local-store backend.
+
+Follow-up (2026-10-29): real Dutch conversation with English terms inside sentences.
+- Say Gouda podcast (samples/meetings/saygouda, manifest.json): turned out to be Dutch-only (English titles only; checked 3 episodes). Not a code-switching sample; kept as clear single-narrator Dutch.
+- Tweakers Podcast #449 (samples/meetings/tweakers, 80.5 min, several hosts, public Omny RSS feed; no ground truth). Offline, parakeet-cpp-bundle-standard, language auto, via eval_recording.py: transcription RTF 0.112, diarization RTF 0.038; 4 main speakers (11.6/17.5/19.8/28.5 min) plus 2 tiny slots (0.1/0.3 min, likely jingles/clips, e.g. an English clip at 0:02).
+- English terms that are common in Dutch come out right (exploit, gepatcht, patch, release, setup, game assets, accounts, app, QR-code, 'suspension of disbelief').
+- Less common English terms get Dutchified, as with CS-FLEURS: the episode's main term 'AI slop' is right about half the time, otherwise 'AI slot'/'slopt'/'slot'; 'Claude' -> 'cloud'; 'idle-vermogen' -> 'ijdelvermogen'; brand names break.
+- Supports the earlier conclusion: Dutch is fine, intra-sentence English needs a custom vocabulary/hotwords or post-correction later. Results in spikes/localai/results/tweakers-449-*.json.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

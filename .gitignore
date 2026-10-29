@@ -56,6 +56,7 @@ spikes/*/recordings/
 spikes/localai/bin/
 spikes/localai/data/
 spikes/localai/samples/meetings/**/*.m4a
+spikes/localai/samples/meetings/**/*.mp3
 spikes/localai/samples/meetings/**/*.vtt
 spikes/localai/samples/meetings/**/*.zip
 __pycache__/
@@ -64,3 +65,15 @@ spikes/localai/samples/meetings/**/*.flac
 spikes/localai/samples/meetings/ami/annotations/
 spikes/localai/samples/meetings/**/*.reference.json
 spikes/localai/samples/meetings/interviews/*.offline-ref.json
+
+# Frontend (Vite)
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vscode/*
+!.vscode/extensions.json
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/schemas/

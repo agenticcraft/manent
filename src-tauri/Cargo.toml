@@ -1,0 +1,54 @@
+[package]
+name = "veritas"
+version = "0.1.0"
+description = "Local-first meeting recorder and transcriber"
+authors = ["Rob"]
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "veritas_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cpal = "0.18"
+rtrb = "0.4.1"
+thiserror = "2.0.21"
+flacenc = "0.5"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+
+
+# Optimise dependencies (FLAC encoder, audio) in dev builds too, so `tauri dev` keeps up in real time.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18", features = ["pipewire"] }
+
+[dev-dependencies]
+claxon = "0.4.3"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }

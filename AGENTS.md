@@ -22,7 +22,8 @@ Veritas is a local-first desktop app that records meetings (the mic and system a
 
 ## Testing and quality
 - Rust: unit tests for the resampler, the segment merge and bleed logic, and the DB queries. An integration test sends a fixture WAV through the engine.
-- UI: Playwright smoke tests.
+- UI: smoke-test the real app, not just a browser: build with `npm run tauri build -- --debug --no-bundle`, start `tauri-driver` (`cargo install tauri-driver --locked`; needs `WebKitWebDriver`), then run `python3 scripts/ui-smoke.py src-tauri/target/debug/veritas <screenshot dir>`. Extend the script when a ticket adds UI, and look at the screenshots (light and dark).
+- Frontend checks: `npm run check` (tsc, ESLint, Prettier). Rust checks: `cargo fmt --check`, `cargo clippy --all-targets`, `cargo test` in `src-tauri/`.
 - Before you mark a task done, `cargo fmt`, `cargo clippy`, the lint, and the tests must all pass, and every acceptance criterion must be checked.
 
 ## Git

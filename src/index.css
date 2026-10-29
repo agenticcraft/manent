@@ -1,0 +1,192 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+
+/* Dark mode follows the OS: src/lib/theme.ts toggles the .dark class on <html>. */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Veritas design tokens (doc-3 UI design): calm and document-like.
+ * Zinc neutrals, one accent (indigo), a soft red only for recording,
+ * and muted pastel colors for speaker chips.
+ */
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Veritas-specific */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-recording: var(--recording);
+  --color-caption: var(--caption);
+  --color-speaker-1: var(--speaker-1);
+  --color-speaker-2: var(--speaker-2);
+  --color-speaker-3: var(--speaker-3);
+  --color-speaker-4: var(--speaker-4);
+  --color-speaker-5: var(--speaker-5);
+  --color-speaker-6: var(--speaker-6);
+  --color-speaker-7: var(--speaker-7);
+  --color-speaker-8: var(--speaker-8);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  /* zinc neutrals */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.21 0.006 285.885);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.885);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.885);
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.37 0.013 285.805);
+  --sidebar-primary: oklch(0.511 0.262 276.966);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.705 0.015 286.067);
+
+  /* the one accent color (indigo) */
+  --brand: oklch(0.511 0.262 276.966);
+  --brand-foreground: oklch(0.985 0 0);
+  /* the only strong signal: a soft red while recording */
+  --recording: oklch(0.637 0.237 25.331);
+  /* live captions are shown lighter until a pass replaces them */
+  --caption: oklch(0.705 0.015 286.067);
+
+  /* muted pastel speaker colors */
+  --speaker-1: oklch(0.82 0.08 250);
+  --speaker-2: oklch(0.84 0.08 150);
+  --speaker-3: oklch(0.85 0.08 70);
+  --speaker-4: oklch(0.82 0.08 20);
+  --speaker-5: oklch(0.82 0.08 310);
+  --speaker-6: oklch(0.85 0.07 195);
+  --speaker-7: oklch(0.84 0.07 110);
+  --speaker-8: oklch(0.82 0.07 345);
+}
+
+.dark {
+  --background: oklch(0.16 0.005 285.823);
+  --foreground: oklch(0.96 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.96 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.96 0 0);
+  --primary: oklch(0.92 0.004 286.32);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.96 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.96 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.552 0.016 285.938);
+
+  --sidebar: oklch(0.19 0.006 285.885);
+  --sidebar-foreground: oklch(0.87 0.006 286.286);
+  --sidebar-primary: oklch(0.673 0.182 276.935);
+  --sidebar-primary-foreground: oklch(0.16 0.005 285.823);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.96 0 0);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.552 0.016 285.938);
+
+  --brand: oklch(0.673 0.182 276.935);
+  --brand-foreground: oklch(0.16 0.005 285.823);
+  --recording: oklch(0.704 0.191 22.216);
+  --caption: oklch(0.552 0.016 285.938);
+
+  --speaker-1: oklch(0.45 0.07 250);
+  --speaker-2: oklch(0.47 0.07 150);
+  --speaker-3: oklch(0.5 0.07 70);
+  --speaker-4: oklch(0.45 0.07 20);
+  --speaker-5: oklch(0.45 0.07 310);
+  --speaker-6: oklch(0.48 0.06 195);
+  --speaker-7: oklch(0.48 0.06 110);
+  --speaker-8: oklch(0.45 0.06 345);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans antialiased;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  /* Transcript text is the hero: readable size, generous line height. */
+  .transcript-text {
+    @apply text-[15px] leading-7 md:text-base;
+  }
+  /* Soft pulse used only for the recording indicator. */
+  .recording-pulse {
+    animation: recording-pulse 2s ease-in-out infinite;
+  }
+}
+
+@keyframes recording-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

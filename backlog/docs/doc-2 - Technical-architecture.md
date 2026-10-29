@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-10-29T18:44:00Z'
+updated_date: '2026-10-29T22:00:00Z'
 ---
 ## 1. Technical foundation
 
@@ -64,28 +64,35 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
 - Renaming a speaker updates every segment retroactively. Merging speakers (for example "Speaker 1" and "Speaker 3" are the same person) moves their samples to one person. Deleting a person deletes all their samples.
 
 ### 1.5 Storage
-- **SQLite** (`sqlx`, file-based) in the OS app-data folder.
-  - `meetings(id, title, started_at, duration, status)`
-  - `tracks(id, meeting_id, source_kind, device_name, path)`
-  - `segments(id, meeting_id, track_id, speaker_id, start_ms, end_ms, text, words_json, is_final)`
-  - `speakers(...)`
-  - `settings(...)`
-- Each meeting has a folder `meetings/<id>/` holding `mic.flac`, `system.flac` and `mix.opus`.
-- An FTS5 index over segment text makes all meetings searchable.
+- **SQLite** via `sqlx` (bundled SQLite, WAL, foreign keys on) in the app data folder: `<app data>/veritas.db`, opened and migrated at app start (`src-tauri/migrations/`, implemented in VRT-6). Times are milliseconds: absolute since the Unix epoch, or relative to the meeting start.
+  - `meetings(id, title, started_at, duration_ms, status ∈ recording|processing|done|failed, dir)`
+  - `tracks(id, meeting_id → meetings, source_kind ∈ mic|loopback, source_id, device_name, path, seconds)`
+  - `segments(id, meeting_id → meetings, track_id → tracks, pass ∈ caption|rolling|final, speaker_id → speakers, speaker_label, start_ms, end_ms, text, words_json)`: the three passes of §1.3; a rolling or final pass atomically replaces the segments of earlier passes in its time window.
+  - `speakers(id, name, color)` and `voice_samples(id, speaker_id → speakers, embedding BLOB (LE f32), encoder_id, clean_seconds, meeting_id → meetings, created_at)` (§1.4).
+  - `settings(key, value JSON)`.
+- Deleting a meeting cascades to its tracks and segments; deleting a person deletes their voice samples (segments stay, unnamed).
+- **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën".
+- Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2).
 
 ### 1.6 Project layout
 ```
 veritas/
   src-tauri/
     src/
-      main.rs            # tauri setup, commands, events
+      main.rs            # thin entry point (calls lib::run)
+      lib.rs             # tauri setup, module wiring, command registration
+      commands.rs        # Tauri commands (kept in sync with src/lib/ipc.ts)
       audio/             # sources (linux.rs, windows.rs, macos.rs), ring buffer, resampler, recorder
-      engine/            # Engine trait, localai.rs (sidecar + HTTP/WS client)
-      speakers.rs        # registry + enrollment
+      engine/            # Engine trait, localai.rs (sidecar + HTTP client)
+      speakers.rs        # registry + in-app matching
       db.rs              # sqlx migrations + queries
-    binaries/            # local-ai sidecar per target triple
+    binaries/            # local-ai sidecar per target triple (VRT-14/VRT-29)
   src/                   # React UI
     routes/              # Library, Live, Meeting, Speakers, Settings
-    components/          # TranscriptView, SpeakerChip, LevelMeter, SourcePicker
+    components/          # Sidebar, PageHeader, EmptyState; later TranscriptView, SpeakerChip, LevelMeter, SourcePicker
+    components/ui/       # shadcn/ui components
     lib/ipc.ts           # typed wrappers around invoke/listen
+    lib/theme.ts         # follow the OS light/dark preference
+    index.css            # design tokens (doc-3)
+  scripts/ui-smoke.py    # UI smoke check of the real app via tauri-driver
 ```

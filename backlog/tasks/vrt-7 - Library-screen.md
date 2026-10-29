@@ -3,8 +3,8 @@ id: VRT-7
 title: Library screen
 status: To Do
 assignee: []
-created_date: '2026-10-29 12:17'
-updated_date: '2026-10-29 12:20'
+created_date: 2026-10-29 12:17
+updated_date: '2026-10-29T21:58:00Z'
 labels:
   - frontend
 milestone: m-1
@@ -31,3 +31,9 @@ Searchable list of meetings (title, date, duration, speaker avatars) with 'New r
 - [ ] #4 Works in light and dark mode
 - [ ] #5 A meeting can be deleted, which removes its audio files and DB rows
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From VRT-6: lib.rs has a temporary #[allow(dead_code)] on mod db because only tests use the query functions; remove it once the Library uses them.
+<!-- SECTION:NOTES:END -->
