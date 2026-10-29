@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-29T15:46:00Z'
-updated_date: '2026-10-29T17:05:00Z'
+updated_date: '2026-10-29T18:45:00Z'
 labels:
   - spike
   - release
@@ -32,8 +32,8 @@ Investigate and decide:
    a. Ship the full binary as a sidecar (simplest, biggest).
    b. Download LocalAI on first run instead of bundling it.
    c. Use a slimmer LocalAI build (check for build tags/variants that include only the gRPC backend runner + audio endpoints).
-   d. Skip LocalAI and run the parakeet-cpp backend directly: the CPU backend (cpu-parakeet-cpp) is only 29 MB and is a gRPC server LocalAI talks to; or link parakeet.cpp (C++/ggml) through FFI into our Rust core (the Engine trait in doc-2 §1.3 already allows this; mobile needs it anyway).
-3. Models: never bundled. Downloaded in-app with progress, checksum verification and resume. Known sizes: parakeet-cpp-bundle-standard 1.1 GB (offline), realtime_eou_120m 254 MB f16 / 123 MB q4_k (live, English), nemotron-3.5 streaming 685-938 MB (live, Dutch candidate, VRT-32). Veritas supports Dutch and English, so the download size covers the model set for both languages; consider downloading only the models for the languages a user enables. Consider quantized variants (q8_0/q5_k) to cut download size and measure the accuracy cost.
+   d. Skip LocalAI and run the parakeet-cpp backend directly (Veritas only needs /v1/audio/transcriptions and /v1/audio/diarization, no realtime WebSocket, no voice registry): the CPU backend (cpu-parakeet-cpp) is only 29 MB and is a gRPC server LocalAI talks to; or link parakeet.cpp (C++/ggml) through FFI into our Rust core (the Engine trait in doc-2 §1.3 already allows this; mobile needs it anyway).
+3. Models: never bundled. Downloaded in-app with progress, checksum verification and resume. VRT-32 reduced the model set to ONE file for Dutch and English: parakeet-cpp-bundle-standard (1.1 GB Q8_0; live chunks, offline passes, diarization, embeddings). Streaming models (realtime_eou_120m 254 MB, nemotron-3.5 938 MB) and the local-store backend are not needed. Evaluate a smaller quantisation of the bundle if one is published, and measure its accuracy cost.
 4. Backends: LocalAI auto-detects GPU and pulls multi-GB builds (ROCm seen in VRT-2); the app must pick the CPU variant explicitly.
 5. Downloads: where they come from (Hugging Face, quay.io OCI), mirrors, and behaviour when offline or on slow links (VRT-2 saw ~20 KB/s single-connection GitHub downloads; parallel range requests fixed it, and HF downloads stalled once).
 

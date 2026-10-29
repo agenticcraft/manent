@@ -1,7 +1,8 @@
 """VRT-2: stream a WAV to LocalAI's realtime WebSocket at real-time speed and
 measure live transcription latency.
 
-Usage: live_test.py <wav> <truth.json> [--model veritas-live-en] [--url ws://127.0.0.1:8181]
+Usage: live_test.py <wav> <truth.json> [--model veritas-live-en] [--language en|nl] [--turn semantic_vad|server_vad]
+                    [--url ws://127.0.0.1:8181]
 
 The WAV must be 16 kHz mono PCM16 or float32. Audio is sent in 100 ms chunks,
 paced to the wall clock. Every server event is logged with the audio position
@@ -23,7 +24,7 @@ from wavio import read_wav
 CHUNK_S = 0.1
 
 
-async def run(wav, truth_path, model, url):
+async def run(wav, truth_path, model, url, language=None, turn="semantic_vad"):
     sr, x = read_wav(open(wav, "rb").read())
     assert sr == 16000, f"expected 16 kHz, got {sr}"
     pcm = (np.clip(x, -1, 1) * 32767).astype("<i2").tobytes()
@@ -38,8 +39,8 @@ async def run(wav, truth_path, model, url):
                 "type": "transcription",
                 "audio": {"input": {
                     "format": {"type": "audio/pcm", "rate": sr},
-                    "transcription": {"model": model, "language": "en"},
-                    "turn_detection": {"type": "semantic_vad", "eagerness": "medium"},
+                    "transcription": {"model": model, **({"language": language} if language else {})},
+                    "turn_detection": {"type": turn, **({"eagerness": "medium"} if turn == "semantic_vad" else {})},
                 }},
             },
         }))
@@ -76,6 +77,7 @@ async def run(wav, truth_path, model, url):
         await asyncio.sleep(2)
         rx.cancel()
 
+    json.dump([{"t": t, "audio": a, **ev} for t, a, ev in events], open(f"results/{wav.rsplit('/', 1)[-1][:-4]}-{model}-live-events.json", "w"))
     report(events, truth)
 
 
@@ -108,4 +110,6 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     model = args[args.index("--model") + 1] if "--model" in args else "veritas-live-en"
     url = args[args.index("--url") + 1] if "--url" in args else "ws://127.0.0.1:8181"
-    asyncio.run(run(args[0], args[1], model, url))
+    language = args[args.index("--language") + 1] if "--language" in args else None
+    turn = args[args.index("--turn") + 1] if "--turn" in args else "semantic_vad"
+    asyncio.run(run(args[0], args[1], model, url, language, turn))

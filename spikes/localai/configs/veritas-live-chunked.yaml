@@ -1,0 +1,7 @@
+# Live fallback: VAD-chunked turns transcribed by the offline 0.6B v3 bundle (multilingual).
+name: veritas-live-chunked
+pipeline:
+  vad: parakeet-cpp-bundle-standard
+  transcription: parakeet-cpp-bundle-standard
+  turn_detection:
+    type: server_vad

@@ -60,3 +60,7 @@ spikes/localai/samples/meetings/**/*.vtt
 spikes/localai/samples/meetings/**/*.zip
 __pycache__/
 spikes/localai/results/
+spikes/localai/samples/meetings/**/*.flac
+spikes/localai/samples/meetings/ami/annotations/
+spikes/localai/samples/meetings/**/*.reference.json
+spikes/localai/samples/meetings/interviews/*.offline-ref.json

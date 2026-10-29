@@ -4,7 +4,7 @@ title: 'Speaker registry: naming, enrollment, rename and merge'
 status: To Do
 assignee: []
 created_date: 2026-10-29 12:17
-updated_date: '2026-10-29T17:05:00Z'
+updated_date: '2026-10-29T18:45:00Z'
 labels:
   - transcription
   - frontend
@@ -32,7 +32,7 @@ App-owned speaker registry with in-app matching (validated in VRT-30): store per
 - [ ] #2 Named speaker is recognized automatically after an app restart
 - [ ] #3 Two speakers can be merged
 - [ ] #4 Deleting a person removes their voice embedding
-- [ ] #5 Matching uses the nearest stored sample with the doc-2 §1.4 decision bands; suggestions in the 0.45-0.60 band need user confirmation
-- [ ] #6 Unit tests cover cosine matching and the decision bands
+- [ ] #5 Matching follows the doc-2 §1.4 decision rule (auto <= 0.40 with 0.15 margin, suggest <= 0.60) and ignores slots with < 5 s clean speech
+- [ ] #6 Unit tests cover cosine matching, the margin rule and the bands
 - [ ] #7 Works for Dutch and English speakers (naming is language-independent)
 <!-- AC:END -->

@@ -1,0 +1,599 @@
+{
+ "source": "AMI ES2004a 120-420 s",
+ "segments": [
+  {
+   "start": 0.04,
+   "end": 40.95,
+   "voice": "FEE013",
+   "text": "you probably already know Um we want it to be original something that's uh people haven't thought of that's not out in the shops um trendy appealing to a wide market but you know not a hunk of metal and user-friendly grannies to kids maybe even pooches should be able to use it Okay um first is the functional design um this is where we all go off and do our individual work um what needs need to be fulfilled by the product um what effects the product has to have and how it's actually going to do that Um conceptual design"
+  },
+  {
+   "start": 42.31,
+   "end": 47.8,
+   "voice": "FEE013",
+   "text": "what we're thinking how it's gonna go and then the detailed design how we're actually gonna put it into practice and make it work"
+  },
+  {
+   "start": 48.79,
+   "end": 48.88,
+   "voice": "MEO015",
+   "text": "'Kay"
+  },
+  {
+   "start": 50.38,
+   "end": 65.8,
+   "voice": "FEE013",
+   "text": "Okay right We're gonna practice with the pens and draw our favourite animal on the white board I'll go first and um sum up the characteristics of that animal So"
+  },
+  {
+   "start": 68.28,
+   "end": 68.43,
+   "voice": "MEO015",
+   "text": "Oops"
+  },
+  {
+   "start": 68.83,
+   "end": 72.93,
+   "voice": "FEE013",
+   "text": "Okay I'll leave space for everyone else Um"
+  },
+  {
+   "start": 91.46,
+   "end": 91.97,
+   "voice": "FEE013",
+   "text": "What's missing"
+  },
+  {
+   "start": 123.22,
+   "end": 124.33,
+   "voice": "FEE013",
+   "text": "We're running out of blue"
+  },
+  {
+   "start": 126.93,
+   "end": 130.6,
+   "voice": "FEE013",
+   "text": "Okay I'm not gonna ask you to guess I'm going to tell you that's supposed to be a tiger"
+  },
+  {
+   "start": 132.48,
+   "end": 132.56,
+   "voice": "MEO015",
+   "text": "Mm"
+  },
+  {
+   "start": 134.53,
+   "end": 136.01,
+   "voice": "FEE013",
+   "text": "And I see them"
+  },
+  {
+   "start": 135.91,
+   "end": 136.04,
+   "voice": "MEO015",
+   "text": "Oh"
+  },
+  {
+   "start": 136.01,
+   "end": 136.44,
+   "voice": "FEE013",
+   "text": "as"
+  },
+  {
+   "start": 136.04,
+   "end": 136.25,
+   "voice": "MEO015",
+   "text": "sorry"
+  },
+  {
+   "start": 136.44,
+   "end": 137.24,
+   "voice": "FEE013",
+   "text": "majestic"
+  },
+  {
+   "start": 138.31,
+   "end": 138.64,
+   "voice": "MEO015",
+   "text": "Mm-hmm"
+  },
+  {
+   "start": 139.89,
+   "end": 142.25,
+   "voice": "FEE013",
+   "text": "and independent"
+  },
+  {
+   "start": 146.18,
+   "end": 146.97,
+   "voice": "FEE013",
+   "text": "and"
+  },
+  {
+   "start": 148.71,
+   "end": 149.06,
+   "voice": "FEE013",
+   "text": "proud"
+  },
+  {
+   "start": 152.31,
+   "end": 155.42,
+   "voice": "FEE013",
+   "text": "Now who would like to go next"
+  },
+  {
+   "start": 155.09,
+   "end": 155.45,
+   "voice": "MEO015",
+   "text": "Yeah me"
+  },
+  {
+   "start": 155.42,
+   "end": 155.8,
+   "voice": "FEE013",
+   "text": "'Kay"
+  },
+  {
+   "start": 159.18,
+   "end": 159.75,
+   "voice": "MEO015",
+   "text": "Cat"
+  },
+  {
+   "start": 165.15,
+   "end": 166.61,
+   "voice": "MEO015",
+   "text": "Where did this come from"
+  },
+  {
+   "start": 167.57,
+   "end": 169.66,
+   "voice": "FEE013",
+   "text": "Is that your lapel then"
+  },
+  {
+   "start": 169.09,
+   "end": 170.03,
+   "voice": "MEO015",
+   "text": "Uh"
+  },
+  {
+   "start": 169.66,
+   "end": 170.1,
+   "voice": "FEE013",
+   "text": "There you go"
+  },
+  {
+   "start": 170.03,
+   "end": 176.02,
+   "voice": "MEO015",
+   "text": "yep Thank you Uh maybe you can guess what I'm trying to make"
+  },
+  {
+   "start": 186.38,
+   "end": 187.2,
+   "voice": "FEE016",
+   "text": "A kind of dog"
+  },
+  {
+   "start": 189.22,
+   "end": 190.08,
+   "voice": "MEO015",
+   "text": "Yep"
+  },
+  {
+   "start": 193.47,
+   "end": 196.97,
+   "voice": "MEO015",
+   "text": "It's actually sitting so"
+  },
+  {
+   "start": 195.85,
+   "end": 196.3,
+   "voice": "FEE016",
+   "text": "Sorry"
+  },
+  {
+   "start": 196.65,
+   "end": 197.18,
+   "voice": "MEE014",
+   "text": "It's sitting"
+  },
+  {
+   "start": 196.97,
+   "end": 197.59,
+   "voice": "MEO015",
+   "text": "it's sitting"
+  },
+  {
+   "start": 197.18,
+   "end": 197.4,
+   "voice": "MEE014",
+   "text": "down"
+  },
+  {
+   "start": 197.59,
+   "end": 199.15,
+   "voice": "MEO015",
+   "text": "it's not standing"
+  },
+  {
+   "start": 197.9,
+   "end": 198.62,
+   "voice": "FEE016",
+   "text": "Uh"
+  },
+  {
+   "start": 199.15,
+   "end": 201.86,
+   "voice": "MEO015",
+   "text": "Okay I see it as one thing it's very supportive"
+  },
+  {
+   "start": 204.13,
+   "end": 225.16,
+   "voice": "MEO015",
+   "text": "It's your best friend and your you can talk to a dog it can be your best friend it doesn't discriminate between you based on what you are Second it's loyal and third thing it's got intuition dogs can som sometimes can make out between a thief and a"
+  },
+  {
+   "start": 224.91,
+   "end": 225.36,
+   "voice": "FEE016",
+   "text": "Mm-hmm"
+  },
+  {
+   "start": 225.16,
+   "end": 231.06,
+   "voice": "MEO015",
+   "text": "person so basically these are the three unique features I think belong to a dog"
+  },
+  {
+   "start": 230.01,
+   "end": 231.09,
+   "voice": "FEE013",
+   "text": "Okay thank you"
+  },
+  {
+   "start": 231.06,
+   "end": 231.47,
+   "voice": "MEO015",
+   "text": "Thank you"
+  },
+  {
+   "start": 233.48,
+   "end": 234.15,
+   "voice": "MEE014",
+   "text": "Yeah I'll"
+  },
+  {
+   "start": 234.11,
+   "end": 234.82,
+   "voice": "MEO015",
+   "text": "Okay"
+  },
+  {
+   "start": 234.15,
+   "end": 235.55,
+   "voice": "MEE014",
+   "text": "have a go"
+  },
+  {
+   "start": 236.33,
+   "end": 236.9,
+   "voice": "MEO015",
+   "text": "Sorry"
+  },
+  {
+   "start": 236.51,
+   "end": 237.06,
+   "voice": "FEE016",
+   "text": "Please please"
+  },
+  {
+   "start": 236.98,
+   "end": 237.37,
+   "voice": "MEE014",
+   "text": "Thanks"
+  },
+  {
+   "start": 237.06,
+   "end": 239.11,
+   "voice": "FEE016",
+   "text": "leave me a space at the bottom I'm little"
+  },
+  {
+   "start": 239.11,
+   "end": 239.55,
+   "voice": "MEE014",
+   "text": "Alright"
+  },
+  {
+   "start": 239.11,
+   "end": 239.63,
+   "voice": "FEE016",
+   "text": "you can get to"
+  },
+  {
+   "start": 239.55,
+   "end": 241.74,
+   "voice": "MEE014",
+   "text": "okay"
+  },
+  {
+   "start": 239.63,
+   "end": 242.14,
+   "voice": "FEE016",
+   "text": "the top with standing on a chair"
+  },
+  {
+   "start": 241.74,
+   "end": 244.89,
+   "voice": "MEE014",
+   "text": "Well since you guys have chosen the ones I wanted to do I'll have"
+  },
+  {
+   "start": 244.81,
+   "end": 246.01,
+   "voice": "FEE013",
+   "text": "Okay"
+  },
+  {
+   "start": 244.89,
+   "end": 245.98,
+   "voice": "MEE014",
+   "text": "to have to"
+  },
+  {
+   "start": 245.93,
+   "end": 246.13,
+   "voice": "MEO015",
+   "text": "Does"
+  },
+  {
+   "start": 245.98,
+   "end": 246.17,
+   "voice": "MEE014",
+   "text": "go"
+  },
+  {
+   "start": 246.13,
+   "end": 246.23,
+   "voice": "MEO015",
+   "text": "it"
+  },
+  {
+   "start": 246.17,
+   "end": 246.29,
+   "voice": "MEE014",
+   "text": "for"
+  },
+  {
+   "start": 246.23,
+   "end": 246.34,
+   "voice": "MEO015",
+   "text": "look"
+  },
+  {
+   "start": 246.29,
+   "end": 246.64,
+   "voice": "MEE014",
+   "text": "something"
+  },
+  {
+   "start": 246.34,
+   "end": 246.84,
+   "voice": "MEO015",
+   "text": "like a dog"
+  },
+  {
+   "start": 246.64,
+   "end": 246.9,
+   "voice": "MEE014",
+   "text": "a bit"
+  },
+  {
+   "start": 246.84,
+   "end": 247.84,
+   "voice": "MEO015",
+   "text": "actually"
+  },
+  {
+   "start": 246.9,
+   "end": 247.65,
+   "voice": "MEE014",
+   "text": "random"
+  },
+  {
+   "start": 251.43,
+   "end": 253.87,
+   "voice": "MEE014",
+   "text": "And also my drawing skill isn't that great"
+  },
+  {
+   "start": 253.84,
+   "end": 254.09,
+   "voice": "FEE013",
+   "text": "Well"
+  },
+  {
+   "start": 253.87,
+   "end": 255.0,
+   "voice": "MEE014",
+   "text": "so"
+  },
+  {
+   "start": 254.09,
+   "end": 255.44,
+   "voice": "FEE013",
+   "text": "as you can see the quality"
+  },
+  {
+   "start": 255.0,
+   "end": 255.29,
+   "voice": "MEE014",
+   "text": "yeah"
+  },
+  {
+   "start": 255.08,
+   "end": 255.43,
+   "voice": "MEO015",
+   "text": "Mm"
+  },
+  {
+   "start": 255.44,
+   "end": 256.83,
+   "voice": "FEE013",
+   "text": "of the work today is um"
+  },
+  {
+   "start": 256.8,
+   "end": 258.94,
+   "voice": "FEE016",
+   "text": "I think it's outstandingly good"
+  },
+  {
+   "start": 259.6,
+   "end": 264.48,
+   "voice": "MEE014",
+   "text": "Okay now I'm gonna have to change what is was originally gonna be because that looks like a beak now so"
+  },
+  {
+   "start": 271.13,
+   "end": 271.74,
+   "voice": "FEE016",
+   "text": "Crocodile"
+  },
+  {
+   "start": 273.99,
+   "end": 274.45,
+   "voice": "FEE013",
+   "text": "Gonna be"
+  },
+  {
+   "start": 274.38,
+   "end": 274.65,
+   "voice": "MEE014",
+   "text": "Yeah"
+  },
+  {
+   "start": 274.45,
+   "end": 274.68,
+   "voice": "FEE013",
+   "text": "a"
+  },
+  {
+   "start": 274.65,
+   "end": 274.74,
+   "voice": "MEE014",
+   "text": "it"
+  },
+  {
+   "start": 274.68,
+   "end": 274.92,
+   "voice": "FEE013",
+   "text": "bird"
+  },
+  {
+   "start": 274.74,
+   "end": 276.36,
+   "voice": "MEE014",
+   "text": "can be a crocodile it can be"
+  },
+  {
+   "start": 276.31,
+   "end": 276.4,
+   "voice": "FEE013",
+   "text": "Is"
+  },
+  {
+   "start": 276.36,
+   "end": 276.44,
+   "voice": "MEE014",
+   "text": "a"
+  },
+  {
+   "start": 276.4,
+   "end": 276.52,
+   "voice": "FEE013",
+   "text": "it"
+  },
+  {
+   "start": 276.44,
+   "end": 277.95,
+   "voice": "MEE014",
+   "text": "crocodile"
+  },
+  {
+   "start": 276.52,
+   "end": 278.76,
+   "voice": "FEE013",
+   "text": "gonna be"
+  },
+  {
+   "start": 277.95,
+   "end": 278.9,
+   "voice": "MEE014",
+   "text": "Well it was it was"
+  },
+  {
+   "start": 278.76,
+   "end": 278.99,
+   "voice": "FEE013",
+   "text": "it's"
+  },
+  {
+   "start": 278.9,
+   "end": 279.04,
+   "voice": "MEE014",
+   "text": "an"
+  },
+  {
+   "start": 278.99,
+   "end": 279.22,
+   "voice": "FEE013",
+   "text": "gonna"
+  },
+  {
+   "start": 279.04,
+   "end": 279.23,
+   "voice": "MEE014",
+   "text": "at"
+  },
+  {
+   "start": 279.22,
+   "end": 279.3,
+   "voice": "FEE013",
+   "text": "be"
+  },
+  {
+   "start": 279.23,
+   "end": 279.76,
+   "voice": "MEE014",
+   "text": "first"
+  },
+  {
+   "start": 279.3,
+   "end": 279.8,
+   "voice": "FEE013",
+   "text": "a bird"
+  },
+  {
+   "start": 279.76,
+   "end": 283.28,
+   "voice": "MEE014",
+   "text": "firstly it was an attempt at a T_ Rex and then it sort"
+  },
+  {
+   "start": 283.24,
+   "end": 283.35,
+   "voice": "FEE016",
+   "text": "O"
+  },
+  {
+   "start": 283.28,
+   "end": 286.27,
+   "voice": "MEE014",
+   "text": "of changed into a pelican but it can be a crocodile now actually"
+  }
+ ]
+}

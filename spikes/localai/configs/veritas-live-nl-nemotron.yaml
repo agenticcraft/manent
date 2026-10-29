@@ -1,0 +1,8 @@
+# Live Dutch candidate: nemotron-3.5 cache-aware streaming (multilingual), no LLM/TTS.
+name: veritas-live-nl-nemotron
+pipeline:
+  vad: parakeet-cpp-bundle-standard
+  transcription: parakeet-cpp-nemotron-3.5-asr-streaming-0.6b
+  turn_detection:
+    type: semantic_vad
+    eagerness: medium

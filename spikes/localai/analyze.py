@@ -8,19 +8,11 @@ import re
 import sys
 from collections import Counter
 
+from spikelib import wer
+
 
 def norm(text):
     return re.sub(r"[^\w\s']", " ", text.lower()).split()
-
-
-def wer(ref, hyp):
-    """Word error rate via Levenshtein distance over words."""
-    d = list(range(len(hyp) + 1))
-    for i, r in enumerate(ref, 1):
-        prev, d[0] = d[0], i
-        for j, h in enumerate(hyp, 1):
-            prev, d[j] = d[j], min(d[j] + 1, d[j - 1] + 1, prev + (r != h))
-    return d[-1] / max(len(ref), 1)
 
 
 def words_in(words, start, end):

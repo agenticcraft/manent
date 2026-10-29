@@ -21,10 +21,13 @@ from pathlib import Path
 
 import numpy as np
 
+import spikelib
+from spikelib import cos_dist, post_file, post_json
+
 args = sys.argv[1:]
 base = Path(args[0])
 MODEL = args[args.index("--model") + 1] if "--model" in args else "parakeet-cpp-bundle-standard"
-URL = args[args.index("--url") + 1] if "--url" in args else "http://127.0.0.1:8181"
+spikelib.URL = args[args.index("--url") + 1] if "--url" in args else spikelib.URL
 ENROLL = args[args.index("--enroll") + 1] if "--enroll" in args else "enroll"
 MEETING = args[args.index("--meeting") + 1] if "--meeting" in args else "test-meeting.wav"
 TAG = args[args.index("--tag") + 1] if "--tag" in args else "clean"
@@ -32,29 +35,10 @@ results = Path("results")
 results.mkdir(exist_ok=True)
 
 
-def post_json(path, body):
-    req = urllib.request.Request(URL + path, json.dumps(body).encode(), {"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=300) as r:
-        return json.loads(r.read() or b"{}")
 
 
-def post_file(path, wav, **fields):
-    """multipart/form-data upload without external dependencies."""
-    boundary = uuid.uuid4().hex
-    body = b""
-    for k, v in fields.items():
-        for item in v if isinstance(v, list) else [v]:
-            body += f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{item}\r\n".encode()
-    body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{wav.name}\"\r\n"
-             f"Content-Type: audio/wav\r\n\r\n").encode() + wav.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
-    req = urllib.request.Request(URL + path, body, {"Content-Type": f"multipart/form-data; boundary={boundary}"})
-    with urllib.request.urlopen(req, timeout=600) as r:
-        return json.loads(r.read())
 
 
-def cos_dist(a, b):
-    a, b = np.asarray(a), np.asarray(b)
-    return float(1 - a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
 # 1. Enroll
