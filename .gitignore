@@ -77,3 +77,6 @@ dist-ssr/
 # Tauri
 src-tauri/target/
 src-tauri/gen/schemas/
+spikes/engine/lib-*/
+spikes/engine/target/
+spikes/engine/results/

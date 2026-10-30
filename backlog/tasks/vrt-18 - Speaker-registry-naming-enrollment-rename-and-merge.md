@@ -4,7 +4,7 @@ title: 'Speaker registry: naming, enrollment, rename and merge'
 status: To Do
 assignee: []
 created_date: 2026-10-29 12:17
-updated_date: '2026-10-29T18:45:00Z'
+updated_date: '2026-10-30T09:02:00Z'
 labels:
   - transcription
   - frontend
@@ -23,7 +23,7 @@ ordinal: 18000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-App-owned speaker registry with in-app matching (validated in VRT-30): store per-speaker embeddings from /v1/audio/diarization include_speaker_profiles as voice samples in SQLite (several per person), match new speakers by cosine distance to the nearest sample with three bands (<= 0.45 auto-name, 0.45-0.60 suggest, > 0.60 unnamed). Clicking a speaker chip and typing a name adds that speaker's embedding as a sample; confirmed/corrected names add more samples. Rename/merge apply retroactively. Speakers screen: rename, merge, delete voice data. No dependency on LocalAI's in-memory voice registry. See doc-2 Technical architecture §1.4 and doc-3 UI design.
+App-owned speaker registry with in-app matching (validated in VRT-30/31/32): store per-speaker embeddings from the engine's speaker_profiles (diarize_profiles_pcm_json, VRT-15) as voice samples in SQLite (several per person), and match new speakers by cosine distance to the nearest sample with the decision rule in doc-2 §1.4 (auto-name <= 0.40 with a 0.15 margin to the next person, suggest <= 0.60, otherwise unnamed; slots under 5 s of clean speech never auto-named). Clicking a speaker chip and typing a name adds that speaker's embedding as a sample; confirmed/corrected names add more samples. Rename/merge apply retroactively. Speakers screen: rename, merge, delete voice data. No dependency on libparakeet's in-memory speaker registry. See doc-2 Technical architecture §1.4 and doc-3 UI design.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

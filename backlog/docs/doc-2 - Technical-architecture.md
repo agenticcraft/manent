@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-10-29T22:00:00Z'
+updated_date: '2026-10-30T09:01:00Z'
 ---
 ## 1. Technical foundation
 
@@ -33,29 +33,39 @@ Design:
 - **Track alignment:** streams start a few ms apart (about 20 ms measured), so each track stores the timestamp of its first callback (`InputCallbackInfo`) to align the tracks. Over 5 minutes, VRT-1 measured no clock drift between mic and system tracks.
 - **Key design advantage:** because the mic and system audio are separate tracks, the app already knows that speech on the mic track is the **local user ("Me")**. Diarization therefore only has to separate the remote voices on the system track, which makes the speaker labels much more accurate. Echo and bleed, where the mic picks up the speakers, are handled by preferring the system-track label when two segments overlap. Headphones avoid the problem entirely.
 
-### 1.3 Transcription engine: LocalAI with the `parakeet-cpp` backend
+### 1.3 Transcription engine: libparakeet (parakeet.cpp) in a helper process
 **One model for everything, Dutch and English (decided in VRT-32):** `parakeet-cpp-bundle-standard` (1.1 GB, Q8_0). It holds parakeet-tdt 0.6B v3 (ASR, 25 European languages, detects the language itself), Nemotron-3 diarization, WeSpeaker speaker embeddings, Silero VAD and a sound tagger. It serves live captions, the rolling and final passes, diarization and speaker embeddings. No streaming models are needed.
 
 - `parakeet-cpp` is a C++/ggml port of NVIDIA NeMo Parakeet. It runs quantized GGUF models on CPU at upstream accuracy and returns **word-level timestamps**.
-- **Backend variant:** install the CPU backend explicitly (`cpu-parakeet-cpp`, 29 MB). LocalAI's auto-detection picks a GPU build when it sees one (for example the multi-GB ROCm build on AMD).
-- **Language:** auto only. The `language` request field is ignored by parakeet 0.6B v3 (auto, `nl` and `en` give identical output), so the app has no language setting. Mixed Dutch/English meetings work because each chunk is detected on its own.
+- **Engine decision (VRT-29, decision-1):** no LocalAI. The spikes used LocalAI, but its parakeet-cpp backend is a thin wrapper around `libparakeet.so`, whose C API (`parakeet_capi_*`, ABI v10, header in `spikes/engine/include/`) Veritas calls directly. Same results as through LocalAI (identical WER, diarization and embeddings), faster (RTF 0.064 vs 0.10), 0.6 s to load, 1.9 GB peak on a 17 min file.
+- **Language:** auto only. The language option is ignored by parakeet 0.6B v3 (auto, `nl` and `en` give identical output), so the app has no language setting. Mixed Dutch/English meetings work because each chunk is detected on its own.
 - **Measured** (test machine, CPU): RTF 0.10 for transcription, 0.03 for diarization. Offline WER on spontaneous English meetings 14–20% (AMI, VRT-31); Dutch 11% on read speech (FLEURS) and 8–17% disagreement with YouTube captions on Dutch interviews (VRT-32).
 - **Rejected for live** (VRT-2, VRT-31, VRT-32): `realtime_eou_120m` streaming (English only; 28.9% WER on a real meeting, drops crosstalk, no live speaker segments) and `nemotron-3.5-asr-streaming-0.6b` (32% WER on mixed NL/EN, leaks language tags). LocalAI's realtime WebSocket with `server_vad` waits for pauses, so text lagged up to 34 s on fluent speech.
 - **Licences** (NOTICE-parakeet-bundle-standard.txt): CC-BY-4.0 (ASR, WeSpeaker), OpenMDW-1.1 (diarization: permissive, keep the licence and notices when distributing), MIT (Silero VAD), Apache-2.0 per model card for the sound tagger (upstream licensing inconsistent; Veritas doesn't use it). The app shows the attributions; if the model is ever bundled, the NOTICE file ships with it.
 
 How the app uses it:
-- The app runs **LocalAI as a sidecar process**, bound to `127.0.0.1` on a random port, started with a raised `--upload-limit` (the default is 15 MB). Rust supervises it: start, health check, restart, and installing the CPU backend and the model with a progress bar. How the engine is packaged and delivered (bundled or downloaded after install, full LocalAI or something leaner) is decided in VRT-29. LocalAI only discovers newly installed backends at startup, so it restarts after a backend install.
+- **Helper process `veritas-engine`** (a small Rust binary in the workspace, the only crate allowed `unsafe`): loads `libparakeet.so` with `libloading`, checks `parakeet_capi_abi_version() == 10`, loads the bundle's components (`parakeet_capi_load_component`: ASR with an empty name, `"vad"`, `"diar"`, `"voice"`) once, and serves requests from the app as JSON lines over stdin/stdout. The app supervises it (start, restart after a crash, stop). A crash or out-of-memory in the engine never stops a recording. No network port, so nothing to bind.
+- **Delivery (downloaded at first run, nothing big in the installer):**
+  - libparakeet from LocalAI's backend images on quay.io (`go-skynet/local-ai-backends`: `cpu-parakeet-cpp` for linux/amd64, `metal-darwin-arm64-parakeet-cpp` for macOS arm64), fetched over the OCI registry API at a pinned digest, every layer checked against its sha256 (`spikes/engine/fetch_backend.py`). 13.8 MB download; only `lib/libparakeet.so` (3.9 MB) is kept, plus `libgomp` where the OS lacks it. Always the CPU variant. **No Windows, macOS Intel or Linux arm64 CPU build exists**: Windows builds parakeet.cpp from source (VRT-11/VRT-23).
+  - The model `parakeet-bundle-standard.gguf` (1.1 GB) from Hugging Face, with progress, resume and checksum. Own mirror: VRT-33.
+- **C API calls:**
+  - Offline and rolling passes: `parakeet_capi_transcribe_path_json_vad_with(asr, vad, wav, 0, NULL)`: words with start/end/confidence. The 0.6B model has no VAD head, so the Silero `"vad"` component cuts long audio (≤ 30 s pieces). The engine writes a 16 kHz WAV for it.
+  - Live chunks: `parakeet_capi_transcribe_pcm_batch_json` on 16 kHz PCM: 0.40 s median per 6 s chunk.
+  - Diarization and speaker embeddings: `parakeet_capi_diarize_profiles_pcm_json(diar, voice, NULL, pcm, n, 16000, 0, 0)`: segments plus `speaker_profiles` (256-dim WeSpeaker embeddings, `clean_duration`, encoder identity).
+  - **Don't use** `parakeet_capi_transcribe_and_diarize*`: on the NL/EN sample it dropped every English turn and peaked at 9 GB on a 17 min file.
+  - Calls on one context queue; `parakeet_capi_set_concurrency` lets live chunks run beside a rolling pass.
 - **Three passes per meeting:**
-  1. **Live captions (app-side chunking, validated in VRT-32):** per track, the app cuts the 16 kHz audio at the quietest 20 ms frame between 4 and 8 s after the previous cut, so a chunk never waits for a pause, and POSTs each chunk (FLAC) to `/v1/audio/transcriptions`. Text appears a median 2.8–4 s and at most ~8 s after it is spoken, at ~0.7 s processing per chunk. Accuracy is close to offline (AMI meeting window 19.1% vs 15.1% offline; Dutch interview within 5.5% of offline). Captions are shown in light grey and carry no speaker.
-  2. **Rolling pass:** every ~30–60 s the app sends the latest audio (with some overlap) to `/v1/audio/transcriptions` and `/v1/audio/diarization`. The resulting segments, with speaker labels and names, replace the captions for that stretch. At RTF ~0.1 + 0.03 this keeps up easily on CPU.
+  1. **Live captions (app-side chunking, validated in VRT-32):** per track, the app cuts the 16 kHz audio at the quietest 20 ms frame between 4 and 8 s after the previous cut, so a chunk never waits for a pause, and sends each chunk to the engine. Text appeared a median 2.8–4 s and at most ~8 s after it was spoken through LocalAI; direct calls take ~0.4 s per chunk. Accuracy is close to offline (AMI meeting window 19.1% vs 15.1% offline; Dutch interview within 5.5% of offline). Captions are shown in light grey and carry no speaker.
+  2. **Rolling pass:** every ~30–60 s the app sends the latest audio (with some overlap) for transcription and diarization. The resulting segments, with speaker labels and names, replace the captions for that stretch. At RTF ~0.06 + 0.03 this keeps up easily on CPU.
   3. **Final pass:** at the end of the meeting the whole recording is transcribed and diarized once more, so speaker labels are consistent across the meeting. This is the stored transcript.
-- **Offline (final pass, recordings and imports):** `POST /v1/audio/transcriptions` with `response_format=verbose_json` and `timestamp_granularities[]=word` returns segments with a speaker label and nested words. `POST /v1/audio/diarization` with `include_speaker_profiles=true` adds per-speaker embeddings, which the app matches to names itself (§1.4). The app merges the two by timestamp. Don't use `include_text=true` on the diarization endpoint: in LocalAI v4.12.1 it collapses everything into one segment. Uploads are FLAC (identical results, 3.4× smaller than WAV on clean audio). Diarization almost never assigns speech to the wrong person (0.1–0.3% on AMI, 6.6% in one meeting with a very quiet speaker); produced audio often yields extra tiny speaker slots (< 8 s of clean speech).
-- An `Engine` trait in Rust (`transcribe_chunk`, `transcribe_file`, `speaker_profiles`) hides LocalAI. That makes it possible later to swap in parakeet.cpp linked directly through FFI, which mobile will need because there is no sidecar there.
+- **Merging:** the app gives each word the speaker of the diarization segment it overlaps most (nearest segment when none overlaps). Diarization almost never assigns speech to the wrong person (0.1–0.3% on AMI, 6.6% in one meeting with a very quiet speaker); produced audio often yields extra tiny speaker slots (< 8 s of clean speech).
+- An `Engine` trait in Rust (`transcribe_chunk`, `transcribe_file`, `speaker_profiles`) hides the helper process. Mobile, which can't run a helper process, can link the same C API in-process later.
+- **Not available without another engine:** LLM summaries (VRT-24) would need a separate local LLM runtime.
 
 ### 1.4 Speaker identity and naming
 Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dutch interviews, across recordings and across Dutch/English): every enrolled person was named correctly and no unenrolled voice got a name.
 
-- **Embeddings come from LocalAI, matching happens in the app.** `/v1/audio/diarization` with `include_speaker_profiles=true` returns a 256-dim WeSpeaker embedding (and `clean_duration`) per speaker. Veritas compares those with its own registry using cosine distance in Rust. It doesn't depend on LocalAI's voice registry, which is in memory (lost on restart) and needs the extra `local-store` backend.
+- **Embeddings come from the engine, matching happens in the app.** `diarize_profiles_pcm_json` returns a 256-dim WeSpeaker embedding (and `clean_duration`) per speaker; they are identical to the ones LocalAI returned in the spikes (VRT-29). Veritas compares them with its own registry using cosine distance in Rust. It doesn't use libparakeet's in-memory speaker registry.
 - **Registry:** tables `speakers(id, name, color)` and `voice_samples(id, speaker_id, embedding BLOB, encoder_id, clean_seconds, meeting_id, created_at)`. A person has several samples. Matching uses the nearest sample, and only samples from the same encoder (`encoder_id` = the `sha256:` identity in `speaker_profiles`).
 - **Decision rule** (cosine distance to the nearest sample of each person): **auto-name** when the nearest person is ≤ 0.40 *and* at least 0.15 closer than any other enrolled person; **suggest** the nearest name (user confirms) when it is ≤ 0.60; otherwise leave the speaker unnamed ("Speaker N"). Measured: same person 0.06–0.39 (worst case: 6 s enrollment on degraded audio); different people ≥ 0.46 (two Dutch men in the same studio), usually ≥ 0.68.
 - **Tiny slots:** diarization slots with < 5 s of clean speech are never auto-named and never used as samples; the user can merge them into a named speaker.
@@ -72,7 +82,9 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
   - `settings(key, value JSON)`.
 - Deleting a meeting cascades to its tracks and segments; deleting a person deletes their voice samples (segments stay, unnamed).
 - **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën".
-- Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2).
+- Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2) and `mix.opus`.
+- **Playback mixdown (VRT-10):** on Stop the tracks are mixed into `mix.opus`: mono, 48 kHz, Opus at 32 kbps (~14 MB per hour), streamed (never the whole meeting in memory), tracks at other sample rates resampled. Ogg pages end every second so players can seek. libopus is built statically from source by the `opus` crate (needs cmake, no system library).
+- **Playback transport:** the webview plays `mix.opus` from a local media server inside the app (`media_server.rs`): bound to 127.0.0.1 on a random port, a random 128-bit token in every URL, only `meetings/<id>/mix.opus` inside the meetings folder, HTTP Range support, one thread per request. Reasons: WebKitGTK can't play media from Tauri's custom protocols, and from `blob:` URLs it can't seek. The player uses `preload="auto"`; with `metadata` WebKitGTK never learns an Ogg file's duration.
 
 ### 1.6 Project layout
 ```
@@ -83,10 +95,10 @@ veritas/
       lib.rs             # tauri setup, module wiring, command registration
       commands.rs        # Tauri commands (kept in sync with src/lib/ipc.ts)
       audio/             # sources (linux.rs, windows.rs, macos.rs), ring buffer, resampler, recorder
-      engine/            # Engine trait, localai.rs (sidecar + HTTP client)
+      engine/            # Engine trait, helper.rs (spawns and talks to veritas-engine), downloads
       speakers.rs        # registry + in-app matching
       db.rs              # sqlx migrations + queries
-    binaries/            # local-ai sidecar per target triple (VRT-14/VRT-29)
+  engine/                # veritas-engine helper crate: libparakeet FFI (VRT-14/VRT-29)
   src/                   # React UI
     routes/              # Library, Live, Meeting, Speakers, Settings
     components/          # Sidebar, PageHeader, EmptyState; later TranscriptView, SpeakerChip, LevelMeter, SourcePicker
