@@ -27,9 +27,9 @@ impl AppPaths {
         self.data.join("meetings")
     }
 
-    /// A meeting folder that may be deleted: it must exist and lie strictly inside the
+    /// A meeting folder the app may read or delete: it must exist and lie strictly inside the
     /// meetings root (after resolving symlinks and `..`). Anything else returns None.
-    pub fn deletable_meeting_dir(&self, dir: &Path) -> Option<PathBuf> {
+    pub fn contained_meeting_dir(&self, dir: &Path) -> Option<PathBuf> {
         let root = self.meetings_root().canonicalize().ok()?;
         let dir = dir.canonicalize().ok()?;
         (dir != root && dir.starts_with(&root)).then_some(dir)
@@ -41,7 +41,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_folders_inside_the_meetings_root_are_deletable() {
+    fn only_folders_inside_the_meetings_root_are_accepted() {
         let data = crate::test_util::temp_dir();
         let paths = AppPaths { data: data.clone() };
         let meeting = paths.meetings_root().join("42");
@@ -50,24 +50,24 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
 
         assert_eq!(
-            paths.deletable_meeting_dir(&meeting),
+            paths.contained_meeting_dir(&meeting),
             Some(meeting.canonicalize().unwrap())
         );
-        assert_eq!(paths.deletable_meeting_dir(&outside), None);
+        assert_eq!(paths.contained_meeting_dir(&outside), None);
         assert_eq!(
-            paths.deletable_meeting_dir(&paths.meetings_root()),
+            paths.contained_meeting_dir(&paths.meetings_root()),
             None,
             "not the root itself"
         );
         assert_eq!(
-            paths.deletable_meeting_dir(&meeting.join("../../elsewhere")),
+            paths.contained_meeting_dir(&meeting.join("../../elsewhere")),
             None,
             "no .. escape"
         );
         assert_eq!(
-            paths.deletable_meeting_dir(&paths.meetings_root().join("missing")),
+            paths.contained_meeting_dir(&paths.meetings_root().join("missing")),
             None
         );
-        assert_eq!(paths.deletable_meeting_dir(Path::new("/")), None);
+        assert_eq!(paths.contained_meeting_dir(Path::new("/")), None);
     }
 }

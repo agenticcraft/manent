@@ -15,9 +15,11 @@ const STATUS_LABEL: Record<MeetingSummary["status"], string | null> = {
 /** One meeting in the Library: title, date, duration, speakers; delete with inline confirm. */
 export function MeetingRow({
   meeting,
+  onOpen,
   onDelete,
 }: {
   meeting: MeetingSummary;
+  onOpen: (id: number) => void;
   onDelete: (id: number) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -32,7 +34,12 @@ export function MeetingRow({
       data-testid="meeting-row"
       data-meeting-id={meeting.id}
     >
-      <div className="min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={() => onOpen(meeting.id)}
+        className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        data-testid="open-meeting"
+      >
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium" data-testid="meeting-title">
             {meeting.title || "Untitled meeting"}
@@ -55,7 +62,7 @@ export function MeetingRow({
         <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
           {formatDateTime(meeting.started_at)} · {formatDuration(meeting.duration_ms)}
         </div>
-      </div>
+      </button>
 
       {shown.length > 0 && (
         <div className="flex -space-x-1" aria-label="Speakers">

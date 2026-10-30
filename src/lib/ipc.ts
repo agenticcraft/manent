@@ -53,6 +53,8 @@ export interface LevelEvent {
 export interface RecordingStopped {
   meeting_id: number;
   tracks: TrackSummary[];
+  /** Path of the playback mixdown (mix.opus), or null if it could not be made. */
+  mix: string | null;
 }
 
 export interface Speaker {
@@ -84,6 +86,18 @@ export interface SourceSettings {
   system: string | null;
 }
 
+/** A meeting with its playback file (Rust: commands::MeetingDetail). */
+export interface MeetingDetail {
+  id: number;
+  title: string;
+  started_at: number;
+  duration_ms: number;
+  status: MeetingStatus;
+  dir: string;
+  /** Playback URL on the app's local media server (127.0.0.1), or null without a mix. */
+  mix_url: string | null;
+}
+
 type NoArgs = Record<string, never>;
 
 /** Command name -> argument and result types. */
@@ -103,6 +117,7 @@ export interface Commands {
   stop_source_monitor: { args: NoArgs; result: null };
   list_meetings: { args: NoArgs; result: MeetingSummary[] };
   delete_meeting: { args: { id: number }; result: boolean };
+  get_meeting: { args: { id: number }; result: MeetingDetail | null };
 }
 
 /** Event name -> payload type. */

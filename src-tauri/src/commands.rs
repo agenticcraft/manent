@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::{self, Monitor, Recording, SourceInfo, SourceKind, TrackSummary};
 use crate::db::{Db, Meeting, NewTrack, Speaker};
+use crate::media_server::{MIX_FILE, MediaServer};
 use crate::paths::AppPaths;
 
 /// Basic app information, shown in Settings > About.
@@ -60,6 +61,8 @@ pub struct RecordingStarted {
 pub struct RecordingStopped {
     pub meeting_id: i64,
     pub tracks: Vec<TrackSummary>,
+    /// The playback mixdown, or None if it could not be made (the tracks are still kept).
+    pub mix: Option<String>,
 }
 
 /// The configured sources that are available now; without a usable configuration the
@@ -310,10 +313,39 @@ pub async fn stop_recording(
             .map_err(|e| e.to_string())?;
     }
     let duration_ms = tracks.iter().map(|t| t.seconds).fold(0.0, f64::max) * 1000.0;
+    // Playback mixdown; a failure here must not lose the recording itself.
+    let files: Vec<std::path::PathBuf> = tracks.iter().map(|t| t.file.clone()).collect();
+    let mix_path = files
+        .first()
+        .and_then(|f| f.parent())
+        .map(|dir| dir.join(MIX_FILE));
+    let mix = match mix_path {
+        Some(path) => {
+            let target = path.clone();
+            match tauri::async_runtime::spawn_blocking(move || audio::mixdown(&files, &target))
+                .await
+            {
+                Ok(Ok(_)) => Some(path.display().to_string()),
+                Ok(Err(e)) => {
+                    eprintln!("mixdown failed for meeting {meeting_id}: {e}");
+                    None
+                }
+                Err(e) => {
+                    eprintln!("mixdown task failed for meeting {meeting_id}: {e}");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
     db.finish_meeting(meeting_id, duration_ms.round() as i64, "done")
         .await
         .map_err(|e| e.to_string())?;
-    Ok(RecordingStopped { meeting_id, tracks })
+    Ok(RecordingStopped {
+        meeting_id,
+        tracks,
+        mix,
+    })
 }
 
 /// Rename a meeting (also while it is being recorded).
@@ -352,6 +384,31 @@ pub async fn list_meetings(db: State<'_, Db>) -> Result<Vec<MeetingSummary>, Str
         .collect())
 }
 
+/// A meeting with what's needed to play it back.
+#[derive(Debug, Serialize)]
+pub struct MeetingDetail {
+    #[serde(flatten)]
+    pub meeting: Meeting,
+    /// URL of the playback mixdown on the local media server, if the mix exists.
+    pub mix_url: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_meeting(
+    db: State<'_, Db>,
+    media: State<'_, MediaServer>,
+    id: i64,
+) -> Result<Option<MeetingDetail>, String> {
+    let Some(meeting) = db.get_meeting(id).await.map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let has_mix = std::path::Path::new(&meeting.dir).join(MIX_FILE).is_file();
+    Ok(Some(MeetingDetail {
+        mix_url: has_mix.then(|| media.mix_url(meeting.id)),
+        meeting,
+    }))
+}
+
 /// Delete a meeting: its audio folder (only if it lies inside the meetings folder) and its
 /// database rows (tracks and segments by cascade). Returns false if it didn't exist.
 #[tauri::command]
@@ -363,7 +420,7 @@ pub async fn delete_meeting(
     let Some(meeting) = db.get_meeting(id).await.map_err(|e| e.to_string())? else {
         return Ok(false);
     };
-    if let Some(dir) = paths.deletable_meeting_dir(std::path::Path::new(&meeting.dir)) {
+    if let Some(dir) = paths.contained_meeting_dir(std::path::Path::new(&meeting.dir)) {
         std::fs::remove_dir_all(&dir)
             .map_err(|e| format!("could not delete {}: {e}", dir.display()))?;
     }

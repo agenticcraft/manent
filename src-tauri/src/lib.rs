@@ -8,6 +8,7 @@ mod commands;
 #[allow(dead_code)]
 mod db;
 mod engine;
+mod media_server;
 mod paths;
 mod speakers;
 #[cfg(test)]
@@ -21,7 +22,9 @@ pub fn run() {
             let paths = paths::AppPaths::resolve(app.path().app_data_dir()?);
             std::fs::create_dir_all(paths.meetings_root())?;
             let db = tauri::async_runtime::block_on(db::Db::open(&paths.database()))?;
+            let media = media_server::MediaServer::start(paths.clone())?;
             app.manage(db);
+            app.manage(media);
             app.manage(paths);
             Ok(())
         })
@@ -42,7 +45,8 @@ pub fn run() {
             commands::start_source_monitor,
             commands::stop_source_monitor,
             commands::list_meetings,
-            commands::delete_meeting
+            commands::delete_meeting,
+            commands::get_meeting
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

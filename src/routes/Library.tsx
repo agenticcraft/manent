@@ -10,9 +10,11 @@ import { call, type MeetingSummary } from "@/lib/ipc";
 /** Library (doc-3 screen 1): searchable list of meetings, newest first. */
 export function Library({
   onNewRecording,
+  onOpenMeeting,
   recording,
 }: {
   onNewRecording: () => Promise<void>;
+  onOpenMeeting: (id: number) => void;
   /** A recording is running: starting another one is not possible. */
   recording: boolean;
 }) {
@@ -101,7 +103,7 @@ export function Library({
           {visible.length > 0 ? (
             <ul className="divide-y divide-border" aria-label="Meetings">
               {visible.map((m) => (
-                <MeetingRow key={m.id} meeting={m} onDelete={remove} />
+                <MeetingRow key={m.id} meeting={m} onOpen={onOpenMeeting} onDelete={remove} />
               ))}
             </ul>
           ) : (

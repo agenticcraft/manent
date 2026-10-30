@@ -5,6 +5,7 @@ import { call, type RecordingStarted } from "@/lib/ipc";
 import { followSystemTheme } from "@/lib/theme";
 import { Library } from "@/routes/Library";
 import { Live } from "@/routes/Live";
+import { Meeting } from "@/routes/Meeting";
 import { Settings } from "@/routes/Settings";
 import { Speakers } from "@/routes/Speakers";
 
@@ -19,6 +20,7 @@ const NAV: NavItem<Page>[] = [
 export default function App() {
   const [page, setPage] = useState<Page | "live">("library");
   const [session, setSession] = useState<RecordingStarted | null>(null);
+  const [openMeeting, setOpenMeeting] = useState<number | null>(null);
   useEffect(followSystemTheme, []);
 
   // Pick up a recording that is still running (e.g. after the UI reloaded).
@@ -48,12 +50,20 @@ export default function App() {
         }}
       />
     );
+  } else if (page === "library" && openMeeting !== null) {
+    content = <Meeting id={openMeeting} onBack={() => setOpenMeeting(null)} />;
   } else if (page === "speakers") {
     content = <Speakers />;
   } else if (page === "settings") {
     content = <Settings />;
   } else {
-    content = <Library onNewRecording={startRecording} recording={!!session} />;
+    content = (
+      <Library
+        onNewRecording={startRecording}
+        onOpenMeeting={setOpenMeeting}
+        recording={!!session}
+      />
+    );
   }
 
   return (
@@ -61,7 +71,10 @@ export default function App() {
       <Sidebar
         items={NAV}
         active={page === "live" ? null : page}
-        onSelect={setPage}
+        onSelect={(p) => {
+          setPage(p);
+          setOpenMeeting(null);
+        }}
         recording={
           session ? { active: page === "live", onSelect: () => setPage("live") } : undefined
         }
