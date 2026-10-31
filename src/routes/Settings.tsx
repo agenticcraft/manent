@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { SourcesSettings } from "@/components/SourcesSettings";
+import { TranscriptionSettings } from "@/components/TranscriptionSettings";
 import { call, type AppInfo } from "@/lib/ipc";
 
 const SECTIONS = [
@@ -11,12 +12,13 @@ const SECTIONS = [
   },
   {
     title: "Transcription",
-    text: "Model status and download. Dutch and English are detected automatically.",
+    text: "The engine and model run locally. Dutch and English are detected automatically.",
+    body: <TranscriptionSettings />,
   },
   { title: "Storage", text: "Where recordings are kept and in which format." },
 ];
 
-/** Settings (doc-3 screen 5). Transcription and Storage are filled in by VRT-27. */
+/** Settings (doc-3 screen 5). Storage and the rest of Transcription come with VRT-27. */
 export function Settings() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [error, setError] = useState<string | null>(null);

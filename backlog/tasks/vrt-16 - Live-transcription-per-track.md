@@ -1,10 +1,11 @@
 ---
 id: VRT-16
 title: Live transcription per track
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: 2026-10-29 12:17
-updated_date: '2026-10-29T18:45:00Z'
+updated_date: '2026-10-30T09:41:00Z'
 labels:
   - transcription
   - frontend
@@ -34,3 +35,14 @@ Live captions per track with app-side chunking (validated in VRT-32): resample e
 - [ ] #3 Chunker and resampler unit-tested (cut point within 4-8 s, at the quietest frame)
 - [ ] #4 Dutch and English transcribed live, including a meeting that switches between them
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Track rows created at recording start (seconds updated at stop), so captions can carry track_id while recording.
+2. Feed: Track::tick sends exactly what it writes (silence while muted, nothing while paused) to a per-track ASR worker thread over mpsc (the capture thread is not the realtime callback, so allocating there is fine). Caption times are then track-relative ms, the same as the files and the mix.
+3. Worker: downmix to mono -> StreamResampler to 16 kHz -> chunker (cut at the quietest 20 ms frame between 4 and 8 s after the previous cut; flush the rest at stop if >= 0.5 s; skip chunks quieter than about -50 dB) -> Engine::transcribe_chunk -> offset the words by the chunk start -> event transcript:caption {meeting_id, track_id, kind, start_ms, end_ms, text, words} plus db.insert_segments(pass caption).
+4. Engine off or not installed: no captions, and the Live screen says so with a link to Settings; per-chunk errors are shown as status, never stop the recording.
+5. Live screen: caption blocks in time order (mic = 'Me', system = 'System'), caption colour, auto-scroll with 'Jump to live'.
+6. Tests: chunker and resampler unit tests; smoke-live extended (play a Dutch/English FLEURS WAV through the speakers and check captions and timing); remove the dead_code allow on mod engine in lib.rs.
+<!-- SECTION:PLAN:END -->

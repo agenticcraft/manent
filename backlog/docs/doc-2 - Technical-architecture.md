@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-10-30T09:01:00Z'
+updated_date: '2026-10-30T09:40:00Z'
 ---
 ## 1. Technical foundation
 
@@ -50,7 +50,7 @@ How the app uses it:
   - The model `parakeet-bundle-standard.gguf` (1.1 GB) from Hugging Face, with progress, resume and checksum. Own mirror: VRT-33.
 - **C API calls:**
   - Offline and rolling passes: `parakeet_capi_transcribe_path_json_vad_with(asr, vad, wav, 0, NULL)`: words with start/end/confidence. The 0.6B model has no VAD head, so the Silero `"vad"` component cuts long audio (≤ 30 s pieces). The engine writes a 16 kHz WAV for it.
-  - Live chunks: `parakeet_capi_transcribe_pcm_batch_json` on 16 kHz PCM: 0.40 s median per 6 s chunk.
+  - Live chunks: the same call on a short-lived 16 kHz WAV in `<app data>/tmp/` (audio of 30 s or less is transcribed whole, without VAD): 0.5 s for a 6 s chunk, 0.9 s for 10.7 s (VRT-15). One request protocol (file paths) for everything; `transcribe_pcm_batch_json` would only save the WAV write.
   - Diarization and speaker embeddings: `parakeet_capi_diarize_profiles_pcm_json(diar, voice, NULL, pcm, n, 16000, 0, 0)`: segments plus `speaker_profiles` (256-dim WeSpeaker embeddings, `clean_duration`, encoder identity).
   - **Don't use** `parakeet_capi_transcribe_and_diarize*`: on the NL/EN sample it dropped every English turn and peaked at 9 GB on a 17 min file.
   - Calls on one context queue; `parakeet_capi_set_concurrency` lets live chunks run beside a rolling pass.
@@ -82,6 +82,7 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
   - `settings(key, value JSON)`.
 - Deleting a meeting cascades to its tracks and segments; deleting a person deletes their voice samples (segments stay, unnamed).
 - **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën".
+- The engine lives in `<app data>/engine/` (libparakeet, libgomp, `engine.json` naming the image manifest) and the model in `<app data>/models/` (the bundle and its NOTICE). Interrupted downloads stay as `*.part` and resume (VRT-14).
 - Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2) and `mix.opus`.
 - **Playback mixdown (VRT-10):** on Stop the tracks are mixed into `mix.opus`: mono, 48 kHz, Opus at 32 kbps (~14 MB per hour), streamed (never the whole meeting in memory), tracks at other sample rates resampled. Ogg pages end every second so players can seek. libopus is built statically from source by the `opus` crate (needs cmake, no system library).
 - **Playback transport:** the webview plays `mix.opus` from a local media server inside the app (`media_server.rs`): bound to 127.0.0.1 on a random port, a random 128-bit token in every URL, only `meetings/<id>/mix.opus` inside the meetings folder, HTTP Range support, one thread per request. Reasons: WebKitGTK can't play media from Tauri's custom protocols, and from `blob:` URLs it can't seek. The player uses `preload="auto"`; with `metadata` WebKitGTK never learns an Ogg file's duration.
@@ -95,10 +96,10 @@ veritas/
       lib.rs             # tauri setup, module wiring, command registration
       commands.rs        # Tauri commands (kept in sync with src/lib/ipc.ts)
       audio/             # sources (linux.rs, windows.rs, macos.rs), ring buffer, resampler, recorder
-      engine/            # Engine trait, helper.rs (spawns and talks to veritas-engine), downloads
+      engine/            # EngineManager (mod.rs), helper.rs (spawns/supervises veritas-engine), download.rs, assets.rs (pins)
       speakers.rs        # registry + in-app matching
       db.rs              # sqlx migrations + queries
-  engine/                # veritas-engine helper crate: libparakeet FFI (VRT-14/VRT-29)
+    engine-helper/       # veritas-engine helper crate (workspace member): libparakeet FFI, JSON lines on stdin/stdout
   src/                   # React UI
     routes/              # Library, Live, Meeting, Speakers, Settings
     components/          # Sidebar, PageHeader, EmptyState; later TranscriptView, SpeakerChip, LevelMeter, SourcePicker
@@ -106,5 +107,5 @@ veritas/
     lib/ipc.ts           # typed wrappers around invoke/listen
     lib/theme.ts         # follow the OS light/dark preference
     index.css            # design tokens (doc-3)
-  scripts/ui-smoke.py    # UI smoke check of the real app via tauri-driver
+  scripts/               # smoke checks of the real app via tauri-driver (ui-smoke.py, smoke-*.py)
 ```

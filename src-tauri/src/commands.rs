@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::{self, Monitor, Recording, SourceInfo, SourceKind, TrackSummary};
 use crate::db::{Db, Meeting, NewTrack, Speaker};
+use crate::engine::{EngineManager, EngineStatus};
 use crate::media_server::{MIX_FILE, MediaServer};
 use crate::paths::AppPaths;
 
@@ -425,6 +426,39 @@ pub async fn delete_meeting(
             .map_err(|e| format!("could not delete {}: {e}", dir.display()))?;
     }
     db.delete_meeting(id).await.map_err(|e| e.to_string())
+}
+
+/// Engine and model state (Settings > Transcription, VRT-14).
+#[tauri::command]
+pub fn engine_status(engine: State<'_, EngineManager>) -> EngineStatus {
+    engine.status()
+}
+
+/// Download the engine and the model in the background; progress comes as `engine:status`.
+#[tauri::command]
+pub fn engine_download(engine: State<'_, EngineManager>) -> Result<(), String> {
+    engine.start_download()
+}
+
+/// Stop a running download; the part already downloaded is kept for the next attempt.
+#[tauri::command]
+pub fn engine_cancel_download(engine: State<'_, EngineManager>) {
+    engine.cancel_download();
+}
+
+/// Start the engine helper (loads the model) and report its state.
+#[tauri::command]
+pub async fn engine_start(engine: State<'_, EngineManager>) -> Result<EngineStatus, String> {
+    engine.start().await?;
+    // A round trip through the helper's request loop, not just a loaded model.
+    engine.request("ping", None).await?;
+    Ok(engine.status())
+}
+
+/// The model licences and attributions (NOTICE file), once downloaded.
+#[tauri::command]
+pub fn engine_notice(engine: State<'_, EngineManager>) -> Option<String> {
+    engine.notice()
 }
 
 #[cfg(test)]

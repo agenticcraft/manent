@@ -27,6 +27,21 @@ impl AppPaths {
         self.data.join("meetings")
     }
 
+    /// Downloaded engine library (libparakeet and its OpenMP runtime), VRT-14.
+    pub fn engine_dir(&self) -> PathBuf {
+        self.data.join("engine")
+    }
+
+    /// Short-lived audio handed to the engine (live chunks), VRT-15.
+    pub fn tmp_dir(&self) -> PathBuf {
+        self.data.join("tmp")
+    }
+
+    /// Downloaded models, VRT-14.
+    pub fn models_dir(&self) -> PathBuf {
+        self.data.join("models")
+    }
+
     /// A meeting folder the app may read or delete: it must exist and lie strictly inside the
     /// meetings root (after resolving symlinks and `..`). Anything else returns None.
     pub fn contained_meeting_dir(&self, dir: &Path) -> Option<PathBuf> {

@@ -98,6 +98,41 @@ export interface MeetingDetail {
   mix_url: string | null;
 }
 
+/** A running engine download (Rust: engine::DownloadProgress). */
+export interface DownloadProgress {
+  item: "engine" | "model" | "notice";
+  received: number;
+  total: number;
+}
+
+export type HelperState = "stopped" | "starting" | "ready" | "restarting" | "failed";
+
+/** The engine helper's ready report (Rust: engine::helper::ReadyInfo). */
+export interface EngineInfo {
+  abi: number;
+  load_ms: number;
+  backends: number;
+  components: string[];
+}
+
+/** Engine and model state, Settings > Transcription (Rust: engine::EngineStatus). */
+export interface EngineStatus {
+  /** A prebuilt engine exists for this platform. */
+  supported: boolean;
+  engine_installed: boolean;
+  model_installed: boolean;
+  /** Bytes still to download. */
+  download_size: number;
+  download: DownloadProgress | null;
+  download_error: string | null;
+  helper: HelperState;
+  helper_info: EngineInfo | null;
+  helper_pid: number | null;
+  helper_error: string | null;
+  /** Automatic restarts after a crash since the app started. */
+  restarts: number;
+}
+
 type NoArgs = Record<string, never>;
 
 /** Command name -> argument and result types. */
@@ -118,6 +153,11 @@ export interface Commands {
   list_meetings: { args: NoArgs; result: MeetingSummary[] };
   delete_meeting: { args: { id: number }; result: boolean };
   get_meeting: { args: { id: number }; result: MeetingDetail | null };
+  engine_status: { args: NoArgs; result: EngineStatus };
+  engine_download: { args: NoArgs; result: null };
+  engine_cancel_download: { args: NoArgs; result: null };
+  engine_start: { args: NoArgs; result: EngineStatus };
+  engine_notice: { args: NoArgs; result: string | null };
 }
 
 /** Event name -> payload type. */
@@ -125,6 +165,8 @@ export interface Events {
   "audio:level": LevelEvent;
   /** Test meters in Settings > Sources. */
   "audio:monitor-level": LevelEvent;
+  /** Every change of the engine, model download and helper state. */
+  "engine:status": EngineStatus;
 }
 
 type ArgsOf<K extends keyof Commands> = Commands[K]["args"] extends NoArgs

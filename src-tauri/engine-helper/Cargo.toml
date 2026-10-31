@@ -1,0 +1,16 @@
+[package]
+name = "veritas-engine"
+version = "0.1.0"
+description = "Veritas transcription engine helper: runs libparakeet (parakeet.cpp) out of process"
+authors = ["Rob"]
+edition = "2024"
+
+# The only crate allowed `unsafe`: it calls libparakeet's C API (decision-1).
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[dependencies]
+libloading = "0.9"
+hound = "3.5.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
