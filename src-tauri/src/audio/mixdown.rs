@@ -55,14 +55,14 @@ struct Input {
 }
 
 impl Input {
-    fn open(path: &Path) -> Result<Self, MixError> {
+    fn open(path: &Path, rate: u32) -> Result<Self, MixError> {
         let file = BufReader::new(File::open(path)?);
         let reader =
             claxon::FlacReader::new(file).map_err(|e| MixError::Flac(path.to_owned(), e))?;
         let info = reader.streaminfo();
         Ok(Self {
             path: path.to_owned(),
-            resampler: Some(StreamResampler::new(info.sample_rate, RATE)),
+            resampler: Some(StreamResampler::new(info.sample_rate, rate)),
             channels: info.channels,
             scale: 1.0 / (1u32 << (info.bits_per_sample - 1)) as f32,
             reader,
@@ -73,7 +73,7 @@ impl Input {
         })
     }
 
-    /// Decode one more FLAC block into the 48 kHz mono queue (or flush at the end).
+    /// Decode one more FLAC block into the resampled mono queue (or flush at the end).
     fn fill(&mut self) -> Result<(), MixError> {
         let buffer = std::mem::take(&mut self.block);
         let next = self
@@ -107,6 +107,15 @@ impl Input {
     }
 }
 
+/// A whole FLAC track as mono samples at `rate` (the final transcription pass, VRT-17).
+pub fn decode_mono(path: &Path, rate: u32) -> Result<Vec<f32>, MixError> {
+    let mut input = Input::open(path, rate)?;
+    while !input.done {
+        input.fill()?;
+    }
+    Ok(input.queue.into_iter().collect())
+}
+
 /// Mix `tracks` into `out` (Ogg Opus, mono, 48 kHz).
 pub fn mixdown(tracks: &[PathBuf], out: &Path) -> Result<MixSummary, MixError> {
     if tracks.is_empty() {
@@ -114,7 +123,7 @@ pub fn mixdown(tracks: &[PathBuf], out: &Path) -> Result<MixSummary, MixError> {
     }
     let mut inputs = tracks
         .iter()
-        .map(|p| Input::open(p))
+        .map(|p| Input::open(p, RATE))
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut encoder = opus::Encoder::new(RATE, opus::Channels::Mono, opus::Application::Voip)?;
@@ -349,6 +358,19 @@ mod tests {
         assert!((summary.seconds - 1.0).abs() < 0.01);
         let (_, pcm, _) = decode(&out);
         assert_eq!(pcm.len(), 48_000);
+    }
+
+    #[test]
+    fn decodes_a_track_to_mono_at_another_rate() {
+        let dir = crate::test_util::temp_dir();
+        let path = dir.join("system.flac");
+        write_tone(&path, 440.0, 48_000, 2, 2.0);
+        let x = decode_mono(&path, 16_000).unwrap();
+        assert_eq!(x.len(), 32_000, "2 s at 16 kHz");
+        // strength() assumes 48 kHz: at 16 kHz the 440 Hz tone sits at 3 x 440 in its terms.
+        let tone = strength(&x[8000..24000], 3.0 * 440.0);
+        assert!(tone > 0.1, "440 Hz kept ({tone})");
+        assert!(strength(&x[8000..24000], 3.0 * 1000.0) < 0.01);
     }
 
     #[test]

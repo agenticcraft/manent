@@ -10,7 +10,9 @@ mod db;
 mod engine;
 mod live;
 mod media_server;
+mod passes;
 mod paths;
+mod rolling;
 mod speakers;
 #[cfg(test)]
 mod test_util;
@@ -53,7 +55,9 @@ pub fn run() {
             commands::list_meetings,
             commands::delete_meeting,
             commands::get_meeting,
-            commands::live_captions,
+            commands::live_transcript,
+            commands::get_me_name,
+            commands::set_me_name,
             commands::engine_status,
             commands::engine_download,
             commands::engine_cancel_download,

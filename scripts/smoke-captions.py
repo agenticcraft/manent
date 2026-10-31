@@ -64,8 +64,9 @@ player = subprocess.Popen(["paplay", "--volume=39000", str(SPEECH)])
 seen = {}  # (track_id, start_ms) -> (first seen wall time, caption)
 end = play_at + duration(SPEECH) + 12
 while time.time() < end:
-    for c in s.invoke("live_captions", {"meetingId": meeting}):
-        seen.setdefault((c["track_id"], c["start_ms"]), (time.time(), c))
+    for c in s.invoke("live_transcript", {"meetingId": meeting}):
+        if c["pass"] == "caption":
+            seen.setdefault((c["track_id"], c["start_ms"]), (time.time(), c))
     time.sleep(0.25)
 player.wait()
 s.screenshot(OUT / "live-captions-dark.png")
@@ -94,16 +95,17 @@ s.check(len(blocks) > 0 and "loopback" in blocks, f"caption blocks shown: {len(b
 
 s.js("document.querySelector('[data-testid=stop]').click()")
 s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 30)
-time.sleep(3)  # the last chunk is transcribed after Stop
+time.sleep(3)  # the last chunk is transcribed after Stop (the final pass runs on)
 s.close()
 
 con = sqlite3.connect(DATA / "veritas.db")
 tracks = dict(con.execute("SELECT id, source_kind FROM tracks WHERE meeting_id = ?", (meeting,)).fetchall())
-rows = con.execute("SELECT track_id, start_ms, end_ms, text, words_json FROM segments WHERE meeting_id = ? AND pass = 'caption'",
-                   (meeting,)).fetchall()
+stored = con.execute("SELECT track_id FROM segments WHERE meeting_id = ?", (meeting,)).fetchall()
 con.close()
-s.check(len(rows) >= len(seen) > 0 and all(r[0] in tracks for r in rows),
-        f"{len(rows)} caption segments stored with their track ({len(seen)} seen live)")
+# Captions are replaced by the rolling and final passes (VRT-17); score them as seen live.
+rows = [(c["track_id"], c["start_ms"], c["end_ms"], c["text"], json.dumps(c["words"])) for _, c in seen.values()]
+s.check(len(seen) > 0 and all(c["track_id"] in tracks for _, c in seen.values()) and stored,
+        f"{len(seen)} captions seen live with their track; {len(stored)} segments stored")
 
 # Latency: when each word was first shown, after it was spoken (track time from started_at).
 lat = []

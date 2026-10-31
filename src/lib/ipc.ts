@@ -52,6 +52,31 @@ export interface Caption {
   words: Word[];
 }
 
+/**
+ * A transcript segment: a live caption (no label) or a speaker block from the rolling or
+ * final pass (Rust: commands::TranscriptSegment).
+ */
+export interface TranscriptSegment {
+  meeting_id: number;
+  track_id: number;
+  kind: SourceKind;
+  /** "me", "1", "2", ... ; null for live captions. */
+  label: string | null;
+  pass: "caption" | "rolling" | "final";
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  words: Word[];
+}
+
+/** A pass replaced the segments that start in [from_ms, to_ms) (Rust: commands::PassEvent). */
+export interface PassEvent {
+  meeting_id: number;
+  from_ms: number;
+  to_ms: number;
+  segments: TranscriptSegment[];
+}
+
 /** A caption could not be made; the recording goes on (Rust: commands::CaptionError). */
 export interface CaptionError {
   meeting_id: number;
@@ -181,7 +206,9 @@ export interface Commands {
   list_meetings: { args: NoArgs; result: MeetingSummary[] };
   delete_meeting: { args: { id: number }; result: boolean };
   get_meeting: { args: { id: number }; result: MeetingDetail | null };
-  live_captions: { args: { meetingId: number }; result: Caption[] };
+  live_transcript: { args: { meetingId: number }; result: TranscriptSegment[] };
+  get_me_name: { args: NoArgs; result: string };
+  set_me_name: { args: { name: string }; result: null };
   engine_status: { args: NoArgs; result: EngineStatus };
   engine_download: { args: NoArgs; result: null };
   engine_cancel_download: { args: NoArgs; result: null };
@@ -199,6 +226,10 @@ export interface Events {
   /** A live caption chunk (VRT-16). */
   "transcript:caption": Caption;
   "transcript:error": CaptionError;
+  /** A rolling pass replaced a stretch with speaker blocks (VRT-17). */
+  "transcript:pass": PassEvent;
+  /** The final pass replaced the whole meeting's transcript. */
+  "transcript:final": PassEvent;
 }
 
 type ArgsOf<K extends keyof Commands> = Commands[K]["args"] extends NoArgs

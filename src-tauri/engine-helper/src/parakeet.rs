@@ -30,6 +30,9 @@ pub struct Engine {
     free_string: unsafe extern "C" fn(*mut c_char),
     transcribe_vad_with:
         unsafe extern "C" fn(Ctx, Ctx, *const c_char, c_int, *const c_char) -> *mut c_char,
+    vad_path_json: unsafe extern "C" fn(Ctx, *const c_char, *const c_char) -> *mut c_char,
+    transcribe_pcm_batch_json:
+        unsafe extern "C" fn(Ctx, *const c_float, *const c_int, c_int, c_int, c_int) -> *mut c_char,
     diarize_profiles: unsafe extern "C" fn(
         Ctx,
         Ctx,
@@ -120,6 +123,8 @@ impl Engine {
             last_error: sym!("parakeet_capi_last_error"),
             free_string: sym!("parakeet_capi_free_string"),
             transcribe_vad_with: sym!("parakeet_capi_transcribe_path_json_vad_with"),
+            vad_path_json: sym!("parakeet_capi_vad_path_json"),
+            transcribe_pcm_batch_json: sym!("parakeet_capi_transcribe_pcm_batch_json"),
             diarize_profiles: sym!("parakeet_capi_diarize_profiles_pcm_json"),
             _lib: lib,
         })
@@ -138,14 +143,76 @@ impl Engine {
         serde_json::from_str(&s).map_err(|e| format!("{what}: bad JSON from libparakeet: {e}"))
     }
 
-    /// Words with timestamps for a WAV file. Audio over 30 s is cut at pauses by the
-    /// Silero VAD component (the 0.6B model has no VAD head).
-    pub fn transcribe(&self, wav: &Path) -> Result<Value, String> {
+    /// Words with timestamps for a WAV file (`samples` are its mono samples). Audio over 30 s
+    /// is cut at pauses by the Silero VAD component (the 0.6B model has no VAD head).
+    ///
+    /// Repair (VRT-17): within a piece that switches language, the model sometimes drops a
+    /// whole sentence (seen with Dutch-English-Dutch). Speech regions of at least 1 s that got
+    /// no words are transcribed again on their own and their words added.
+    pub fn transcribe(&self, wav: &Path, samples: &[f32], rate: u32) -> Result<Value, String> {
         let path = c_path(wav)?;
         let p = unsafe {
             (self.transcribe_vad_with)(self.asr.0, self.vad.0, path.as_ptr(), 0, std::ptr::null())
         };
-        self.json(p, self.asr.0, "transcribe")
+        let mut doc = self.json(p, self.asr.0, "transcribe")?;
+        let p = unsafe { (self.vad_path_json)(self.vad.0, path.as_ptr(), std::ptr::null()) };
+        let regions = self.json(p, self.vad.0, "vad")?;
+        let words = doc["words"].as_array().cloned().unwrap_or_default();
+        let span = |v: &Value| {
+            (
+                v["start"].as_f64().unwrap_or(0.0),
+                v["end"].as_f64().unwrap_or(0.0),
+            )
+        };
+        let missed = uncovered(
+            regions["segments"]
+                .as_array()
+                .map(|a| a.iter().map(span).collect())
+                .unwrap_or_default(),
+            &words.iter().map(span).collect::<Vec<_>>(),
+        );
+        if missed.is_empty() {
+            return Ok(doc);
+        }
+        let mut all = words;
+        for (start, end) in &missed {
+            let a = ((start - 0.3).max(0.0) * rate as f64) as usize;
+            let b = (((end + 0.3) * rate as f64) as usize).min(samples.len());
+            if b <= a {
+                continue;
+            }
+            let piece = &samples[a..b];
+            let n = [piece.len() as c_int];
+            let p = unsafe {
+                (self.transcribe_pcm_batch_json)(
+                    self.asr.0,
+                    piece.as_ptr(),
+                    n.as_ptr(),
+                    1,
+                    rate as c_int,
+                    0,
+                )
+            };
+            let found = self.json(p, self.asr.0, "transcribe (repair)")?;
+            let offset = a as f64 / rate as f64;
+            for w in found[0]["words"].as_array().cloned().unwrap_or_default() {
+                let mut w = w;
+                for key in ["start", "end"] {
+                    w[key] = serde_json::json!(w[key].as_f64().unwrap_or(0.0) + offset);
+                }
+                all.push(w);
+            }
+        }
+        all.sort_by(|x, y| span(x).0.total_cmp(&span(y).0));
+        doc["text"] = Value::String(
+            all.iter()
+                .filter_map(|w| w["w"].as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+        doc["words"] = Value::Array(all);
+        doc["repaired"] = serde_json::json!(missed.len());
+        Ok(doc)
     }
 
     /// Speaker segments plus one embedding per usable speaker (speaker_profiles v1).
@@ -167,5 +234,36 @@ impl Engine {
             )
         };
         self.json(p, self.diar.0, "diarize")
+    }
+}
+
+/// Speech regions (seconds) of at least 1 s that no word overlaps; regions less than 0.5 s
+/// apart are joined first (a pause inside a sentence splits it into two regions).
+pub fn uncovered(regions: Vec<(f64, f64)>, words: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut joined: Vec<(f64, f64)> = Vec::new();
+    for (s, e) in regions {
+        match joined.last_mut() {
+            Some(last) if s - last.1 < 0.5 => last.1 = last.1.max(e),
+            _ => joined.push((s, e)),
+        }
+    }
+    joined
+        .into_iter()
+        .filter(|(s, e)| e - s >= 1.0)
+        .filter(|(s, e)| !words.iter().any(|(ws, we)| ws < e && we > s))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_speech_without_words() {
+        let regions = vec![(0.0, 2.0), (3.0, 4.0), (4.2, 5.5), (7.0, 7.5), (9.0, 11.0)];
+        let words = [(0.5, 0.9), (9.5, 10.0)];
+        // 3-4 and 4.2-5.5 join into one 2.5 s region; 7-7.5 is too short.
+        assert_eq!(uncovered(regions, &words), vec![(3.0, 5.5)]);
+        assert!(uncovered(vec![(0.0, 3.0)], &[(2.9, 3.2)]).is_empty());
     }
 }

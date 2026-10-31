@@ -49,7 +49,8 @@ fn handle(engine: &parakeet::Engine, req: &Request) -> Result<Value, String> {
         "ping" => Ok(json!({})),
         "transcribe" => {
             let wav = req.wav.as_deref().ok_or("transcribe needs \"wav\"")?;
-            let mut doc = engine.transcribe(wav)?;
+            let (samples, rate) = read_wav_mono(wav)?;
+            let mut doc = engine.transcribe(wav, &samples, rate)?;
             // Token ids are not used by the app; words carry the timestamps.
             if let Some(obj) = doc.as_object_mut() {
                 obj.remove("tokens");

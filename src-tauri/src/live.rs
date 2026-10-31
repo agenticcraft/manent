@@ -6,7 +6,7 @@
 //! Caption times are milliseconds on the track's timeline (the same as the track file and
 //! the mix).
 
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 
 use serde::Serialize;
 
@@ -210,6 +210,47 @@ pub fn downmix(interleaved: &[f32], channels: u16, out: &mut Vec<f32>) {
     }
 }
 
+/// The rolling pass looks back at most this far (VRT-17), so this much audio is kept.
+const HISTORY: usize = 3 * 60 * RATE;
+
+/// The recent 16 kHz audio of a track, shared with the rolling pass (VRT-17).
+#[derive(Debug, Default)]
+pub struct History {
+    /// Track sample index of `samples[0]`.
+    start: u64,
+    samples: Vec<f32>,
+}
+
+pub type SharedHistory = Arc<Mutex<History>>;
+
+impl History {
+    pub fn push(&mut self, pcm: &[f32]) {
+        self.samples.extend_from_slice(pcm);
+        // Trim in steps of 30 s so this doesn't move memory on every block.
+        if self.samples.len() > HISTORY + 30 * RATE {
+            let drop = self.samples.len() - HISTORY;
+            self.samples.drain(..drop);
+            self.start += drop as u64;
+        }
+    }
+
+    /// Track sample index just after the newest sample.
+    pub fn end(&self) -> u64 {
+        self.start + self.samples.len() as u64
+    }
+
+    pub fn start(&self) -> u64 {
+        self.start
+    }
+
+    /// Samples `[from, to)` of the track, clamped to what is kept.
+    pub fn range(&self, from: u64, to: u64) -> Vec<f32> {
+        let a = from.clamp(self.start, self.end()) - self.start;
+        let b = to.clamp(self.start, self.end()) - self.start;
+        self.samples[a as usize..b.max(a) as usize].to_vec()
+    }
+}
+
 /// What to transcribe again after a chunk.
 enum Redo {
     /// The words from this sample offset on (a word cut in two at a forced cut).
@@ -247,6 +288,7 @@ pub fn spawn<E: Engine + Send + 'static>(
     track: TrackRef,
     sample_rate: u32,
     channels: u16,
+    history: SharedHistory,
     engine: E,
     on_caption: impl Fn(Caption) + Send + 'static,
     on_error: impl Fn(String) + Send + 'static,
@@ -330,12 +372,14 @@ pub fn spawn<E: Engine + Send + 'static>(
             downmix(&block, channels, &mut mono);
             pcm.clear();
             resampler.process(&mono, &mut pcm);
+            history.lock().unwrap_or_else(|e| e.into_inner()).push(&pcm);
             let chunks = chunker.push(&pcm);
             handle_all(&mut chunker, chunks);
         }
         // The recording stopped: flush the resampler and the last chunk.
         pcm.clear();
         resampler.finish(&mut pcm);
+        history.lock().unwrap_or_else(|e| e.into_inner()).push(&pcm);
         let chunks = chunker.push(&pcm);
         handle_all(&mut chunker, chunks);
         if let Some(chunk) = chunker.finish() {
@@ -452,6 +496,25 @@ mod tests {
     }
 
     #[test]
+    fn history_keeps_the_last_minutes_with_track_positions() {
+        let mut h = History::default();
+        let minute: Vec<f32> = (0..60 * RATE).map(|i| i as f32).collect();
+        for _ in 0..4 {
+            h.push(&minute);
+        }
+        assert_eq!(h.end(), (4 * 60 * RATE) as u64);
+        assert!(h.start() >= (60 * RATE) as u64 && h.end() - h.start() >= HISTORY as u64);
+        let from = (3 * 60 * RATE) as u64;
+        let x = h.range(from, from + 10);
+        assert_eq!(
+            x,
+            (0..10).map(|i| i as f32).collect::<Vec<_>>(),
+            "4th minute starts at 0 again"
+        );
+        assert!(h.range(0, 5).is_empty(), "trimmed audio is gone");
+    }
+
+    #[test]
     fn downmix_averages_channels() {
         let mut out = Vec::new();
         downmix(&[1.0, 0.0, 0.5, 0.5], 2, &mut out);
@@ -501,6 +564,9 @@ mod tests {
         async fn speaker_profiles(&self, _: &Path) -> Result<Diarization, String> {
             unreachable!()
         }
+        async fn transcribe_words(&self, _: &Path) -> Result<Transcript, String> {
+            unreachable!()
+        }
     }
 
     fn track() -> TrackRef {
@@ -525,6 +591,7 @@ mod tests {
             track(),
             48_000,
             2,
+            SharedHistory::default(),
             engine.clone(),
             move |c| sink.lock().unwrap().push(c),
             |e| panic!("{e}"),
@@ -579,6 +646,7 @@ mod tests {
             track(),
             16_000,
             1,
+            SharedHistory::default(),
             engine.clone(),
             move |c| sink.lock().unwrap().push(c),
             |e| panic!("{e}"),
@@ -679,6 +747,7 @@ mod tests {
             track(),
             16_000,
             1,
+            SharedHistory::default(),
             engine.clone(),
             |_| panic!("no captions"),
             move |e| sink.lock().unwrap().push(e),

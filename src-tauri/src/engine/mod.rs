@@ -48,6 +48,12 @@ pub trait Engine {
         wav: &Path,
     ) -> impl Future<Output = Result<FileTranscript, String>> + Send;
 
+    /// Words of a recording without speakers (the mic track is "Me"; 16 kHz mono WAV).
+    fn transcribe_words(
+        &self,
+        wav: &Path,
+    ) -> impl Future<Output = Result<Transcript, String>> + Send;
+
     /// Speaker turns and one embedding per usable speaker (16 kHz mono WAV).
     fn speaker_profiles(
         &self,
@@ -301,6 +307,10 @@ impl Engine for EngineManager {
             segments: transcript::merge(&words.words, &diarization.turns),
             diarization,
         })
+    }
+
+    async fn transcribe_words(&self, wav: &Path) -> Result<Transcript, String> {
+        transcript::parse_transcript(&self.request("transcribe", Some(wav)).await?)
     }
 
     async fn speaker_profiles(&self, wav: &Path) -> Result<Diarization, String> {
