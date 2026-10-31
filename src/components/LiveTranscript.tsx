@@ -1,7 +1,8 @@
 import { ArrowDown } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { formatDuration, speakerBg } from "@/lib/format";
-import { call, on, type RecordingStarted, type TranscriptSegment } from "@/lib/ipc";
+import { SpeakerChip } from "@/components/SpeakerChip";
+import { formatDuration } from "@/lib/format";
+import { call, on, type RecordingStarted, type TranscriptSegment, type VoiceView } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
 /** A new block starts when the speaker changes or after a pause this long. */
@@ -64,6 +65,7 @@ export function LiveTranscript({
   const [error, setError] = useState<string | null>(null);
   const [following, setFollowing] = useState(true);
   const [meName, setMeName] = useState("Me");
+  const [voices, setVoices] = useState<VoiceView[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -98,8 +100,14 @@ export function LiveTranscript({
     const offError = on("transcript:error", (e) => {
       if (e.meeting_id === id) setError(e.message);
     });
+    // Who the speakers are (VRT-18): reloaded after every pass and every naming.
+    const loadVoices = () => call("meeting_voices", { meetingId: id }).then(setVoices, () => {});
+    loadVoices();
+    const offSpeakers = on("speakers:changed", (e) => {
+      if (e.meeting_id === null || e.meeting_id === id) loadVoices();
+    });
     return () => {
-      for (const off of [offCaption, offPass, offError]) off.then((f) => f());
+      for (const off of [offCaption, offPass, offError, offSpeakers]) off.then((f) => f());
     };
   }, [session.meeting_id]);
 
@@ -176,6 +184,8 @@ export function LiveTranscript({
               >
                 <header className="flex items-center gap-2 text-xs">
                   <SpeakerChip
+                    meetingId={session.meeting_id}
+                    voices={voices}
                     label={b.label}
                     kind={b.kind}
                     meName={meName}
@@ -223,67 +233,6 @@ export function LiveTranscript({
         </button>
       )}
     </section>
-  );
-}
-
-/** Who spoke: "Me" (renamable), "Speaker N" in its colour, or the source of a caption. */
-function SpeakerChip({
-  label,
-  kind,
-  meName,
-  onRenameMe,
-}: {
-  label: string | null;
-  kind: TranscriptSegment["kind"];
-  meName: string;
-  onRenameMe: (name: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const chip = "rounded-full px-2 py-0.5 font-medium text-foreground";
-  if (label === "me" || (label === null && kind === "mic")) {
-    if (editing) {
-      return (
-        <input
-          autoFocus
-          defaultValue={meName}
-          aria-label="Your name"
-          className={cn(chip, "w-32 bg-muted ring-2 ring-ring/50 outline-none")}
-          onBlur={(e) => {
-            setEditing(false);
-            onRenameMe(e.currentTarget.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") setEditing(false);
-          }}
-          data-testid="me-name-input"
-        />
-      );
-    }
-    return (
-      <button
-        type="button"
-        className={cn(chip, "bg-muted hover:bg-muted/70")}
-        title="Rename"
-        onClick={() => setEditing(true)}
-        data-testid="speaker-chip"
-        data-speaker="me"
-      >
-        {meName}
-      </button>
-    );
-  }
-  if (label === null) {
-    return <span className={cn(chip, "bg-muted")}>System audio</span>;
-  }
-  return (
-    <span
-      className={cn(chip, speakerBg(Number(label)))}
-      data-testid="speaker-chip"
-      data-speaker={label}
-    >
-      Speaker {label}
-    </span>
   );
 }
 

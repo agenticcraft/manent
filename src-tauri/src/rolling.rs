@@ -5,6 +5,7 @@
 //! that stretch. After the recording the final pass does the same over the whole meeting at
 //! once, so speaker labels are consistent everywhere.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +40,39 @@ pub struct PassResult {
     pub from_ms: u32,
     pub to_ms: u32,
     pub blocks: Vec<(i64, Labelled)>,
+    /// The voice of every label in this pass (for naming and matching, VRT-18).
+    pub voices: Vec<LabelVoice>,
+}
+
+/// A speaker label's voice in a pass: its cleanest embedding.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LabelVoice {
+    pub label: String,
+    pub embedding: Option<Vec<f32>>,
+    pub clean_seconds: f32,
+    pub encoder_id: String,
+}
+
+/// The voices of the labelled slots (several slots can share a label: keep the cleanest).
+fn label_voices(d: &Diarization, labels: &HashMap<u32, String>) -> Vec<LabelVoice> {
+    let mut out: Vec<LabelVoice> = Vec::new();
+    for p in &d.profiles {
+        let Some(label) = labels.get(&p.speaker) else {
+            continue;
+        };
+        let voice = LabelVoice {
+            label: label.clone(),
+            embedding: p.embedding.clone(),
+            clean_seconds: p.clean_seconds,
+            encoder_id: d.encoder_id.clone(),
+        };
+        match out.iter_mut().find(|v| &v.label == label) {
+            Some(v) if v.embedding.is_some() && v.clean_seconds >= voice.clean_seconds => {}
+            Some(v) => *v = voice,
+            None => out.push(voice),
+        }
+    }
+    out
 }
 
 pub struct Rolling {
@@ -115,18 +149,20 @@ async fn transcribe_tracks<E: Engine + Clone + Send + Sync + 'static>(
 /// Bleed removal and labelling of one pass's words (all times in meeting ms).
 fn label_blocks(
     tracks: &[(TrackRef, Vec<Word>, Option<Diarization>)],
-    mut labels_for: impl FnMut(&Diarization, &[Word]) -> std::collections::HashMap<u32, String>,
-) -> Vec<(i64, Labelled)> {
+    mut labels_for: impl FnMut(&Diarization, &[Word]) -> HashMap<u32, String>,
+) -> (Vec<(i64, Labelled)>, Vec<LabelVoice>) {
     let system_words: Vec<Word> = tracks
         .iter()
         .filter(|(_, _, d)| d.is_some())
         .flat_map(|(_, w, _)| w.iter().cloned())
         .collect();
     let mut blocks = Vec::new();
+    let mut voices = Vec::new();
     for (track, words, diar) in tracks {
         match diar {
             Some(d) => {
                 let labels = labels_for(d, words);
+                voices.extend(label_voices(d, &labels));
                 let turns: Vec<SpeakerTurn> = d.turns.clone();
                 blocks.extend(
                     passes::system_blocks(words, &turns, &labels)
@@ -145,7 +181,7 @@ fn label_blocks(
         }
     }
     blocks.sort_by_key(|(_, b)| b.start_ms);
-    blocks
+    (blocks, voices)
 }
 
 /// Start the rolling passes of a recording. `on_pass` stores and shows each result;
@@ -248,12 +284,13 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
     for (_, words, _) in &mut results {
         words.retain(|w| w.start_ms >= from_ms && w.start_ms < to_ms);
     }
-    let blocks = label_blocks(&results, |d, kept| labels.assign(d, kept));
+    let (blocks, voices) = label_blocks(&results, |d, kept| labels.assign(d, kept));
     Ok(Some((
         PassResult {
             from_ms,
             to_ms,
             blocks,
+            voices,
         },
         to_ms as u64 * RATE / 1000,
     )))
@@ -264,7 +301,7 @@ pub async fn final_pass<E: Engine + Clone + Send + Sync + 'static>(
     engine: &E,
     tracks: Vec<(TrackRef, Vec<f32>)>,
     tmp: &Path,
-) -> Result<Vec<(i64, Labelled)>, String> {
+) -> Result<(Vec<(i64, Labelled)>, Vec<LabelVoice>), String> {
     std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
     let mut audio = Vec::new();
     for (track, samples) in &tracks {
@@ -360,7 +397,7 @@ mod engine_tests {
             mic[at + i] += x;
         }
         let tmp = crate::test_util::temp_dir();
-        let blocks = final_pass(
+        let (blocks, _) = final_pass(
             &engine,
             vec![
                 (track(1, SourceKind::Mic), mic),

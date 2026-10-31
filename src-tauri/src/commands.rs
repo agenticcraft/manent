@@ -9,14 +9,15 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::{self, Monitor, Recording, SourceInfo, SourceKind, TrackSummary};
 use crate::db::Pass;
-use crate::db::{Db, Meeting, NewSegment, NewTrack, Speaker};
+use crate::db::{Db, Meeting, NewSegment, NewTrack, Person, Speaker};
 use crate::engine::transcript::Word;
 use crate::engine::{EngineManager, EngineStatus};
 use crate::live::{self, Caption, SharedHistory, TrackRef};
 use crate::media_server::{MIX_FILE, MediaServer};
-use crate::passes::Labelled;
+use crate::passes::{self, Labelled};
 use crate::paths::AppPaths;
-use crate::rolling::{self, PassResult, PassTrack, Rolling};
+use crate::rolling::{self, LabelVoice, PassResult, PassTrack, Rolling};
+use crate::speakers;
 
 /// Basic app information, shown in Settings > About.
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -783,6 +784,9 @@ fn start_rolling(
         if let Err(e) = saved {
             eprintln!("saving a rolling pass failed: {e}");
         }
+        if let Err(e) = tauri::async_runtime::block_on(store_voices(&db, meeting_id, &r.voices)) {
+            eprintln!("matching speakers failed: {e}");
+        }
         let segments = r
             .blocks
             .into_iter()
@@ -795,6 +799,12 @@ fn start_rolling(
                 from_ms: r.from_ms,
                 to_ms: r.to_ms,
                 segments,
+            },
+        );
+        let _ = app.emit(
+            "speakers:changed",
+            SpeakersChanged {
+                meeting_id: Some(meeting_id),
             },
         );
     };
@@ -850,7 +860,8 @@ fn start_final_pass(
             Err(e) => Err(e),
         };
         match result {
-            Ok(blocks) => {
+            Ok((blocks, voices)) => {
+                let named = named_stretches(&db, meeting_id).await;
                 let rows: Vec<NewSegment> =
                     blocks.iter().map(|(id, b)| new_segment(*id, b)).collect();
                 let saved = db
@@ -865,6 +876,9 @@ fn start_final_pass(
                     .await;
                 if let Err(e) = saved {
                     eprintln!("saving the final pass failed: {e}");
+                }
+                if let Err(e) = relabel_final(&db, meeting_id, &blocks, &voices, &named).await {
+                    eprintln!("matching speakers after the final pass failed: {e}");
                 }
                 eprintln!(
                     "meeting {meeting_id}: final pass done in {:.1} s",
@@ -881,6 +895,12 @@ fn start_final_pass(
                         from_ms: 0,
                         to_ms: duration_ms as u32,
                         segments,
+                    },
+                );
+                let _ = app.emit(
+                    "speakers:changed",
+                    SpeakersChanged {
+                        meeting_id: Some(meeting_id),
                     },
                 );
             }
@@ -900,6 +920,290 @@ fn start_final_pass(
             eprintln!("marking meeting {meeting_id} done failed: {e}");
         }
     });
+}
+
+/// Who the speakers are changed (event `speakers:changed`); None = people in general.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpeakersChanged {
+    pub meeting_id: Option<i64>,
+}
+
+/// Store a pass's voices and match them against the registry (VRT-18).
+async fn store_voices(db: &Db, meeting_id: i64, voices: &[LabelVoice]) -> Result<(), String> {
+    for v in voices {
+        db.upsert_meeting_voice(
+            meeting_id,
+            &v.label,
+            v.embedding.as_deref(),
+            &v.encoder_id,
+            v.clean_seconds.into(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    speakers::identify(db, meeting_id).await
+}
+
+/// Stretches of the meeting the user named before the final pass: (track, start, end, person).
+async fn named_stretches(db: &Db, meeting_id: i64) -> Vec<(i64, i64, i64, i64)> {
+    let (Ok(voices), Ok(segments)) = (
+        db.meeting_voices(meeting_id).await,
+        db.list_segments(meeting_id).await,
+    ) else {
+        return Vec::new();
+    };
+    let confirmed: HashMap<String, i64> = voices
+        .into_iter()
+        .filter(|v| v.confirmed)
+        .filter_map(|v| Some((v.label, v.speaker_id?)))
+        .collect();
+    segments
+        .into_iter()
+        .filter_map(|s| {
+            let person = confirmed.get(s.speaker_label.as_deref()?)?;
+            Some((s.track_id?, s.start_ms, s.end_ms, *person))
+        })
+        .collect()
+}
+
+/// After the final pass: the new labels take the names the user gave during the recording
+/// (by overlap with the named stretches), then the rest is matched against the registry.
+async fn relabel_final(
+    db: &Db,
+    meeting_id: i64,
+    blocks: &[(i64, Labelled)],
+    voices: &[LabelVoice],
+    named: &[(i64, i64, i64, i64)],
+) -> Result<(), String> {
+    db.clear_meeting_voices(meeting_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    for v in voices {
+        let mut total = 0i64;
+        let mut overlap: HashMap<i64, i64> = HashMap::new();
+        for (track, b) in blocks.iter().filter(|(_, b)| b.label == v.label) {
+            let (start, end) = (i64::from(b.start_ms), i64::from(b.end_ms));
+            total += end - start;
+            for (_, s, e, person) in named.iter().filter(|n| n.0 == *track) {
+                let o = end.min(*e) - start.max(*s);
+                if o > 0 {
+                    *overlap.entry(*person).or_default() += o;
+                }
+            }
+        }
+        db.upsert_meeting_voice(
+            meeting_id,
+            &v.label,
+            v.embedding.as_deref(),
+            &v.encoder_id,
+            v.clean_seconds.into(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        if let Some((person, o)) = overlap.into_iter().max_by_key(|(_, o)| *o)
+            && o * 2 >= total
+        {
+            db.set_voice_identity(meeting_id, &v.label, Some(person), None, None, true)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    speakers::identify(db, meeting_id).await
+}
+
+/// A meeting's speaker label as the UI shows it: who it is or who it might be.
+#[derive(Debug, Clone, Serialize)]
+pub struct VoiceView {
+    pub label: String,
+    pub speaker: Option<Speaker>,
+    pub suggestion: Option<Speaker>,
+    pub distance: Option<f64>,
+    pub clean_seconds: f64,
+    pub confirmed: bool,
+}
+
+#[tauri::command]
+pub async fn meeting_voices(db: State<'_, Db>, meeting_id: i64) -> Result<Vec<VoiceView>, String> {
+    let people: HashMap<i64, Speaker> = db
+        .list_speakers()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|s| (s.id, s))
+        .collect();
+    Ok(db
+        .meeting_voices(meeting_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|v| VoiceView {
+            speaker: v.speaker_id.and_then(|id| people.get(&id).cloned()),
+            suggestion: v.suggested_id.and_then(|id| people.get(&id).cloned()),
+            label: v.label,
+            distance: v.distance,
+            clean_seconds: v.clean_seconds,
+            confirmed: v.confirmed,
+        })
+        .collect())
+}
+
+/// Name a meeting's speaker (doc-2 §1.4): an existing person (same name) or a new one. The
+/// voice becomes one of that person's samples, and every segment of the label is renamed.
+#[tauri::command]
+pub async fn name_speaker(
+    app: AppHandle,
+    db: State<'_, Db>,
+    meeting_id: i64,
+    label: String,
+    name: String,
+) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("a name is needed".into());
+    }
+    let err = |e: crate::db::DbError| e.to_string();
+    let person = match db.speaker_by_name(name).await.map_err(err)? {
+        Some(p) => p.id,
+        None => {
+            let count = db.list_speakers().await.map_err(err)?.len() as i64;
+            db.create_speaker(name, count % 8 + 1).await.map_err(err)?
+        }
+    };
+    assign_person(&db, meeting_id, &label, person).await?;
+    let _ = app.emit(
+        "speakers:changed",
+        SpeakersChanged {
+            meeting_id: Some(meeting_id),
+        },
+    );
+    Ok(())
+}
+
+/// Accept the suggested name of a meeting's speaker.
+#[tauri::command]
+pub async fn confirm_suggestion(
+    app: AppHandle,
+    db: State<'_, Db>,
+    meeting_id: i64,
+    label: String,
+) -> Result<(), String> {
+    let voices = db
+        .meeting_voices(meeting_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let person = voices
+        .iter()
+        .find(|v| v.label == label)
+        .and_then(|v| v.suggested_id)
+        .ok_or("no suggestion for this speaker")?;
+    assign_person(&db, meeting_id, &label, person).await?;
+    let _ = app.emit(
+        "speakers:changed",
+        SpeakersChanged {
+            meeting_id: Some(meeting_id),
+        },
+    );
+    Ok(())
+}
+
+async fn assign_person(db: &Db, meeting_id: i64, label: &str, person: i64) -> Result<(), String> {
+    let err = |e: crate::db::DbError| e.to_string();
+    db.set_voice_identity(meeting_id, label, Some(person), None, None, true)
+        .await
+        .map_err(err)?;
+    let voices = db.meeting_voices(meeting_id).await.map_err(err)?;
+    if let Some(v) = voices.iter().find(|v| v.label == label)
+        && let (Some(embedding), Some(encoder)) = (&v.embedding, &v.encoder_id)
+        && v.clean_seconds >= speakers::MIN_CLEAN_SECONDS
+    {
+        db.add_voice_sample(
+            person,
+            embedding,
+            encoder,
+            v.clean_seconds,
+            Some(meeting_id),
+            now_ms()?,
+        )
+        .await
+        .map_err(err)?;
+    }
+    // The new sample can name other speakers too.
+    speakers::identify(db, meeting_id).await
+}
+
+/// Two speakers of a meeting are one person: `from` joins `into`.
+#[tauri::command]
+pub async fn merge_labels(
+    app: AppHandle,
+    db: State<'_, Db>,
+    meeting_id: i64,
+    from: String,
+    into: String,
+) -> Result<(), String> {
+    if from == into || from == passes::ME || into == passes::ME {
+        return Err("pick another speaker".into());
+    }
+    db.merge_labels(meeting_id, &from, &into)
+        .await
+        .map_err(|e| e.to_string())?;
+    speakers::identify(&db, meeting_id).await?;
+    let _ = app.emit(
+        "speakers:changed",
+        SpeakersChanged {
+            meeting_id: Some(meeting_id),
+        },
+    );
+    Ok(())
+}
+
+/// People on the Speakers screen.
+#[tauri::command]
+pub async fn list_people(db: State<'_, Db>) -> Result<Vec<Person>, String> {
+    db.list_people().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rename_person(
+    app: AppHandle,
+    db: State<'_, Db>,
+    id: i64,
+    name: String,
+) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("a name is needed".into());
+    }
+    db.rename_speaker(id, name)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("speakers:changed", SpeakersChanged { meeting_id: None });
+    Ok(())
+}
+
+/// `merged` is the same person as `keep`: their voice samples and segments move to `keep`.
+#[tauri::command]
+pub async fn merge_people(
+    app: AppHandle,
+    db: State<'_, Db>,
+    keep: i64,
+    merged: i64,
+) -> Result<(), String> {
+    if keep == merged {
+        return Err("pick another person".into());
+    }
+    db.merge_speakers(keep, merged)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("speakers:changed", SpeakersChanged { meeting_id: None });
+    Ok(())
+}
+
+/// Delete a person and their voice data (biometric); their segments stay, unnamed.
+#[tauri::command]
+pub async fn delete_person(app: AppHandle, db: State<'_, Db>, id: i64) -> Result<(), String> {
+    db.delete_speaker(id).await.map_err(|e| e.to_string())?;
+    let _ = app.emit("speakers:changed", SpeakersChanged { meeting_id: None });
+    Ok(())
 }
 
 /// Engine and model state (Settings > Transcription, VRT-14).
@@ -938,6 +1242,70 @@ pub fn engine_notice(engine: State<'_, EngineManager>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn block(label: &str, start_ms: u32, end_ms: u32) -> Labelled {
+        Labelled {
+            label: label.into(),
+            start_ms,
+            end_ms,
+            text: "x".into(),
+            words: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn names_given_during_the_recording_survive_the_final_renumbering() {
+        let db = Db::open_in_memory().await.unwrap();
+        let m = db.create_meeting("m", 1, "/m").await.unwrap();
+        let track = NewTrack {
+            source_kind: "loopback",
+            source_id: "out",
+            device_name: "Out",
+            path: "/m/system.flac",
+            seconds: 9.0,
+        };
+        let t = db.add_track(m, &track).await.unwrap();
+        let anna = db.create_speaker("Anna", 1).await.unwrap();
+        // Rolling: Anna (named by the user) is "1", someone else "2".
+        let rolling: Vec<NewSegment> = [block("1", 0, 5000), block("2", 5000, 9000)]
+            .iter()
+            .map(|b| new_segment(t, b))
+            .collect();
+        db.insert_segments(m, Pass::Rolling, &rolling)
+            .await
+            .unwrap();
+        db.set_voice_identity(m, "1", Some(anna), None, None, true)
+            .await
+            .unwrap();
+        let named = named_stretches(&db, m).await;
+        assert_eq!(named, [(t, 0, 5000, anna)]);
+
+        // The final pass numbers them the other way round.
+        let blocks = vec![(t, block("2", 100, 4900)), (t, block("1", 5100, 8900))];
+        let rows: Vec<NewSegment> = blocks.iter().map(|(id, b)| new_segment(*id, b)).collect();
+        db.replace_segments(m, &[Pass::Rolling], 0, i64::MAX, Pass::Final, &rows)
+            .await
+            .unwrap();
+        let voice = |label: &str| LabelVoice {
+            label: label.into(),
+            embedding: None,
+            clean_seconds: 0.0,
+            encoder_id: "sha256:e".into(),
+        };
+        relabel_final(&db, m, &blocks, &[voice("2"), voice("1")], &named)
+            .await
+            .unwrap();
+        let voices = db.meeting_voices(m).await.unwrap();
+        let who: HashMap<_, _> = voices
+            .iter()
+            .map(|v| (v.label.as_str(), (v.speaker_id, v.confirmed)))
+            .collect();
+        assert_eq!(who["2"], (Some(anna), true), "Anna is now label 2");
+        assert_eq!(who["1"], (None, false));
+        let segs = db.list_segments(m).await.unwrap();
+        assert_eq!(segs[0].speaker_id, Some(anna));
+        assert_eq!(segs[1].speaker_id, None);
+    }
 
     fn src(id: &str, kind: SourceKind, is_default: bool) -> SourceInfo {
         SourceInfo {

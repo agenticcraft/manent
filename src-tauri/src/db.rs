@@ -119,6 +119,42 @@ pub struct VoiceSample {
     pub clean_seconds: f64,
 }
 
+/// A meeting's speaker label with its voice and who it is (table meeting_voices, VRT-18).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeetingVoice {
+    pub label: String,
+    pub speaker_id: Option<i64>,
+    pub suggested_id: Option<i64>,
+    pub distance: Option<f64>,
+    pub embedding: Option<Vec<f32>>,
+    pub encoder_id: Option<String>,
+    pub clean_seconds: f64,
+    /// The user named or confirmed it (matching leaves it alone).
+    pub confirmed: bool,
+}
+
+/// A person on the Speakers screen.
+#[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
+pub struct Person {
+    pub id: i64,
+    pub name: String,
+    pub color: i64,
+    pub meetings: i64,
+    pub samples: i64,
+}
+
+fn to_blob(v: &[f32]) -> Vec<u8> {
+    v.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+fn from_blob(b: &[u8]) -> Vec<f32> {
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct Db {
     pool: SqlitePool,
@@ -403,7 +439,7 @@ impl Db {
     /// Move `merged`'s voice samples and segments to `keep`, then delete `merged`.
     pub async fn merge_speakers(&self, keep: i64, merged: i64) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        for table in ["voice_samples", "segments"] {
+        for table in ["voice_samples", "segments", "meeting_voices"] {
             sqlx::query(&format!(
                 "UPDATE {table} SET speaker_id = ? WHERE speaker_id = ?"
             ))
@@ -412,6 +448,11 @@ impl Db {
             .execute(&mut *tx)
             .await?;
         }
+        sqlx::query("UPDATE meeting_voices SET suggested_id = ? WHERE suggested_id = ?")
+            .bind(keep)
+            .bind(merged)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM speakers WHERE id = ?")
             .bind(merged)
             .execute(&mut *tx)
@@ -429,7 +470,7 @@ impl Db {
         meeting_id: Option<i64>,
         created_at: i64,
     ) -> Result<i64> {
-        let blob: Vec<u8> = embedding.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let blob = to_blob(embedding);
         let id = sqlx::query(
             "INSERT INTO voice_samples
                  (speaker_id, embedding, encoder_id, clean_seconds, meeting_id, created_at)
@@ -461,18 +502,187 @@ impl Db {
             .map(|(id, speaker_id, blob, clean_seconds)| VoiceSample {
                 id,
                 speaker_id,
-                embedding: blob
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|b| f32::from_le_bytes(*b))
-                    .collect(),
+                embedding: from_blob(&blob),
                 clean_seconds,
             })
             .collect())
     }
 
     // ---------------------------------------------------------------- settings
+
+    /// A person by name, ignoring case.
+    pub async fn speaker_by_name(&self, name: &str) -> Result<Option<Speaker>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM speakers WHERE name = ? COLLATE NOCASE LIMIT 1")
+                .bind(name)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    /// People with the number of meetings they speak in and of voice samples.
+    pub async fn list_people(&self) -> Result<Vec<Person>> {
+        Ok(sqlx::query_as(
+            "SELECT sp.id, sp.name, sp.color,
+                    (SELECT COUNT(DISTINCT meeting_id) FROM segments WHERE speaker_id = sp.id) AS meetings,
+                    (SELECT COUNT(*) FROM voice_samples WHERE speaker_id = sp.id) AS samples
+             FROM speakers sp ORDER BY sp.name COLLATE NOCASE",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    // ---------------------------------------------------------------- meeting voices
+
+    /// Record a label's voice; keeps the embedding with the most clean speech.
+    pub async fn upsert_meeting_voice(
+        &self,
+        meeting_id: i64,
+        label: &str,
+        embedding: Option<&[f32]>,
+        encoder_id: &str,
+        clean_seconds: f64,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO meeting_voices (meeting_id, label, embedding, encoder_id, clean_seconds)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (meeting_id, label) DO UPDATE SET
+                 embedding = excluded.embedding,
+                 encoder_id = excluded.encoder_id,
+                 clean_seconds = excluded.clean_seconds
+             WHERE excluded.embedding IS NOT NULL
+               AND (meeting_voices.embedding IS NULL
+                    OR excluded.clean_seconds > meeting_voices.clean_seconds)",
+        )
+        .bind(meeting_id)
+        .bind(label)
+        .bind(embedding.map(to_blob))
+        .bind(encoder_id)
+        .bind(clean_seconds)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn meeting_voices(&self, meeting_id: i64) -> Result<Vec<MeetingVoice>> {
+        type Row = (
+            String,
+            Option<i64>,
+            Option<i64>,
+            Option<f64>,
+            Option<Vec<u8>>,
+            Option<String>,
+            f64,
+            bool,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT label, speaker_id, suggested_id, distance, embedding, encoder_id,
+                    clean_seconds, confirmed
+             FROM meeting_voices WHERE meeting_id = ? ORDER BY CAST(label AS INTEGER), label",
+        )
+        .bind(meeting_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| MeetingVoice {
+                label: r.0,
+                speaker_id: r.1,
+                suggested_id: r.2,
+                distance: r.3,
+                embedding: r.4.as_deref().map(from_blob),
+                encoder_id: r.5,
+                clean_seconds: r.6,
+                confirmed: r.7,
+            })
+            .collect())
+    }
+
+    /// Who a label is: a match (auto-named or suggested) or the user's choice (`confirmed`).
+    pub async fn set_voice_identity(
+        &self,
+        meeting_id: i64,
+        label: &str,
+        speaker_id: Option<i64>,
+        suggested_id: Option<i64>,
+        distance: Option<f64>,
+        confirmed: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO meeting_voices (meeting_id, label, speaker_id, suggested_id, distance, confirmed)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT (meeting_id, label) DO UPDATE SET
+                 speaker_id = excluded.speaker_id, suggested_id = excluded.suggested_id,
+                 distance = excluded.distance, confirmed = excluded.confirmed",
+        )
+        .bind(meeting_id)
+        .bind(label)
+        .bind(speaker_id)
+        .bind(suggested_id)
+        .bind(distance)
+        .bind(confirmed)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Forget a meeting's labels (the final pass numbers speakers anew).
+    pub async fn clear_meeting_voices(&self, meeting_id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM meeting_voices WHERE meeting_id = ?")
+            .bind(meeting_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Give every segment of the meeting the person its label stands for (or none).
+    pub async fn apply_voice_identities(&self, meeting_id: i64) -> Result<()> {
+        sqlx::query(
+            "UPDATE segments SET speaker_id = (
+                 SELECT v.speaker_id FROM meeting_voices v
+                 WHERE v.meeting_id = segments.meeting_id AND v.label = segments.speaker_label)
+             WHERE meeting_id = ? AND speaker_label IS NOT NULL AND speaker_label <> 'me'",
+        )
+        .bind(meeting_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Two labels of a meeting are one person: `from`'s segments get label `into`; `into`
+    /// takes `from`'s voice if it has more clean speech.
+    pub async fn merge_labels(&self, meeting_id: i64, from: &str, into: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE segments SET speaker_label = ? WHERE meeting_id = ? AND speaker_label = ?",
+        )
+        .bind(into)
+        .bind(meeting_id)
+        .bind(from)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE meeting_voices SET
+                 embedding = f.embedding, encoder_id = f.encoder_id, clean_seconds = f.clean_seconds
+             FROM (SELECT embedding, encoder_id, clean_seconds FROM meeting_voices
+                   WHERE meeting_id = ? AND label = ?) AS f
+             WHERE meeting_voices.meeting_id = ? AND meeting_voices.label = ?
+               AND f.embedding IS NOT NULL AND f.clean_seconds > meeting_voices.clean_seconds",
+        )
+        .bind(meeting_id)
+        .bind(from)
+        .bind(meeting_id)
+        .bind(into)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM meeting_voices WHERE meeting_id = ? AND label = ?")
+            .bind(meeting_id)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
 
     pub async fn get_setting<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
@@ -566,6 +776,7 @@ mod tests {
             "segments",
             "speakers",
             "voice_samples",
+            "meeting_voices",
             "settings",
             "segments_fts",
         ] {
@@ -676,6 +887,79 @@ mod tests {
             db.search("hallo", 10).await.unwrap().is_empty(),
             "fts row removed too"
         );
+    }
+
+    #[tokio::test]
+    async fn meeting_voices_keep_the_cleanest_voice_and_name_segments() {
+        let db = db().await;
+        let m = db.create_meeting("m", 1, "/m").await.unwrap();
+        let anna = db.create_speaker("Anna", 2).await.unwrap();
+        let labelled = |label: &str, start_ms| NewSegment {
+            speaker_label: Some(label.into()),
+            ..seg(start_ms, "x")
+        };
+        db.insert_segments(
+            m,
+            Pass::Rolling,
+            &[labelled("1", 0), labelled("2", 1000), labelled("me", 2000)],
+        )
+        .await
+        .unwrap();
+        db.upsert_meeting_voice(m, "1", Some(&[1.0, 0.0]), "sha256:e", 8.0)
+            .await
+            .unwrap();
+        db.upsert_meeting_voice(m, "1", Some(&[0.0, 1.0]), "sha256:e", 3.0)
+            .await
+            .unwrap();
+        db.upsert_meeting_voice(m, "1", None, "sha256:e", 30.0)
+            .await
+            .unwrap();
+        db.upsert_meeting_voice(m, "2", Some(&[0.6, 0.8]), "sha256:e", 12.0)
+            .await
+            .unwrap();
+        let v = db.meeting_voices(m).await.unwrap();
+        assert_eq!(
+            v[0].embedding.as_deref(),
+            Some(&[1.0f32, 0.0][..]),
+            "cleanest kept"
+        );
+        assert_eq!(v[0].clean_seconds, 8.0);
+
+        db.set_voice_identity(m, "1", Some(anna), None, Some(0.1), true)
+            .await
+            .unwrap();
+        db.apply_voice_identities(m).await.unwrap();
+        let speakers: Vec<_> = db
+            .list_segments(m)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.speaker_id)
+            .collect();
+        assert_eq!(speakers, [Some(anna), None, None]);
+        let v = db.meeting_voices(m).await.unwrap();
+        assert!(
+            v[0].confirmed && v[0].embedding.is_some(),
+            "identity keeps the voice"
+        );
+
+        // Speaker 2 turns out to be Anna too.
+        db.merge_labels(m, "2", "1").await.unwrap();
+        db.apply_voice_identities(m).await.unwrap();
+        let segs = db.list_segments(m).await.unwrap();
+        assert_eq!(segs[1].speaker_label.as_deref(), Some("1"));
+        assert_eq!(segs[1].speaker_id, Some(anna));
+        let v = db.meeting_voices(m).await.unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(
+            v[0].clean_seconds, 12.0,
+            "the cleaner voice of the merged label"
+        );
+
+        db.delete_speaker(anna).await.unwrap();
+        assert_eq!(db.meeting_voices(m).await.unwrap()[0].speaker_id, None);
+        db.clear_meeting_voices(m).await.unwrap();
+        assert!(db.meeting_voices(m).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -814,6 +1098,16 @@ mod tests {
         );
         assert_eq!(db.list_segments(m).await.unwrap()[0].speaker_id, Some(bram));
 
+        assert_eq!(
+            db.speaker_by_name("BRAM").await.unwrap().map(|s| s.id),
+            Some(bram)
+        );
+        let people = db.list_people().await.unwrap();
+        assert_eq!(
+            (people[0].meetings, people[0].samples),
+            (1, 3),
+            "samples of every encoder"
+        );
         db.rename_speaker(bram, "Bram Jansen").await.unwrap();
         assert_eq!(db.list_speakers().await.unwrap()[0].name, "Bram Jansen");
         db.delete_speaker(bram).await.unwrap();
@@ -872,6 +1166,6 @@ mod tests {
             .fetch_one(&db.pool)
             .await
             .unwrap();
-        assert_eq!(migrations.0, 1);
+        assert_eq!(migrations.0, 2, "each migration applied once");
     }
 }

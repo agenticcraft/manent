@@ -77,6 +77,26 @@ export interface PassEvent {
   segments: TranscriptSegment[];
 }
 
+/** A meeting's speaker label: who it is or might be (Rust: commands::VoiceView). */
+export interface VoiceView {
+  label: string;
+  speaker: Speaker | null;
+  /** Suggested by voice (the user confirms). */
+  suggestion: Speaker | null;
+  distance: number | null;
+  clean_seconds: number;
+  confirmed: boolean;
+}
+
+/** A known person on the Speakers screen (Rust: db::Person). */
+export interface Person {
+  id: number;
+  name: string;
+  color: number;
+  meetings: number;
+  samples: number;
+}
+
 /** A caption could not be made; the recording goes on (Rust: commands::CaptionError). */
 export interface CaptionError {
   meeting_id: number;
@@ -208,6 +228,14 @@ export interface Commands {
   get_meeting: { args: { id: number }; result: MeetingDetail | null };
   live_transcript: { args: { meetingId: number }; result: TranscriptSegment[] };
   get_me_name: { args: NoArgs; result: string };
+  meeting_voices: { args: { meetingId: number }; result: VoiceView[] };
+  name_speaker: { args: { meetingId: number; label: string; name: string }; result: null };
+  confirm_suggestion: { args: { meetingId: number; label: string }; result: null };
+  merge_labels: { args: { meetingId: number; from: string; into: string }; result: null };
+  list_people: { args: NoArgs; result: Person[] };
+  rename_person: { args: { id: number; name: string }; result: null };
+  merge_people: { args: { keep: number; merged: number }; result: null };
+  delete_person: { args: { id: number }; result: null };
   set_me_name: { args: { name: string }; result: null };
   engine_status: { args: NoArgs; result: EngineStatus };
   engine_download: { args: NoArgs; result: null };
@@ -230,6 +258,8 @@ export interface Events {
   "transcript:pass": PassEvent;
   /** The final pass replaced the whole meeting's transcript. */
   "transcript:final": PassEvent;
+  /** Who the speakers are changed; meeting_id null = people in general (VRT-18). */
+  "speakers:changed": { meeting_id: number | null };
 }
 
 type ArgsOf<K extends keyof Commands> = Commands[K]["args"] extends NoArgs
