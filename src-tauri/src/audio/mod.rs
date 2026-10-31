@@ -4,6 +4,7 @@
 
 mod capture;
 mod flac;
+mod import;
 pub(crate) mod levels;
 mod mixdown;
 mod monitor;
@@ -23,6 +24,7 @@ mod platform;
 mod platform;
 
 pub use capture::list_sources;
+pub use import::import_to_flac;
 pub use mixdown::{decode_mono, mixdown};
 pub use monitor::Monitor;
 pub use recorder::{Feed, Recording, TrackSummary, track_file_names};

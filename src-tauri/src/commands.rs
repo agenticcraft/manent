@@ -12,6 +12,7 @@ use crate::db::Pass;
 use crate::db::{Db, Meeting, NewSegment, NewTrack, Person, Speaker};
 use crate::engine::transcript::Word;
 use crate::engine::{EngineManager, EngineStatus};
+use crate::jobs::{JobView, Jobs};
 use crate::live::{self, Caption, SharedHistory, TrackRef};
 use crate::media_server::{MIX_FILE, MediaServer};
 use crate::passes::{self, Labelled};
@@ -141,7 +142,7 @@ pub fn resolve_sources(available: &[SourceInfo], configured: Option<&[String]>) 
         .collect()
 }
 
-fn now_ms() -> Result<i64, String> {
+pub(crate) fn now_ms() -> Result<i64, String> {
     Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
@@ -470,11 +471,9 @@ pub async fn set_source_muted(
 /// Stop the recording, close the FLAC files, store the tracks and finish the meeting.
 #[tauri::command]
 pub async fn stop_recording(
-    app: AppHandle,
     state: State<'_, RecorderState>,
     db: State<'_, Db>,
-    engine: State<'_, EngineManager>,
-    paths: State<'_, AppPaths>,
+    jobs: State<'_, Jobs>,
 ) -> Result<RecordingStopped, String> {
     let ActiveRecording {
         recording,
@@ -536,15 +535,8 @@ pub async fn stop_recording(
         None => None,
     };
     let duration_ms = duration_ms.round() as i64;
-    // With transcription on, the final pass runs in the background ("processing").
-    let final_tracks: Vec<(TrackRef, std::path::PathBuf)> = pass_tracks
-        .into_iter()
-        .filter_map(|t| {
-            let i = track_ids.iter().position(|id| *id == t.track_id)?;
-            Some((t, tracks.get(i)?.file.clone()))
-        })
-        .collect();
-    let status = if final_tracks.is_empty() {
+    // With transcription on, the final pass runs as a background job ("processing").
+    let status = if pass_tracks.is_empty() {
         "done"
     } else {
         "processing"
@@ -552,16 +544,16 @@ pub async fn stop_recording(
     db.finish_meeting(meeting_id, duration_ms, status)
         .await
         .map_err(|e| e.to_string())?;
-    if !final_tracks.is_empty() {
-        start_final_pass(
-            app,
-            db.inner().clone(),
-            engine.inner().clone(),
-            paths.tmp_dir(),
-            meeting_id,
-            duration_ms,
-            final_tracks,
-        );
+    if !pass_tracks.is_empty() {
+        let title = db
+            .get_meeting(meeting_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|m| m.title)
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| "Untitled meeting".into());
+        jobs.transcribe(meeting_id, title);
     }
     Ok(RecordingStopped {
         meeting_id,
@@ -724,7 +716,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn new_segment(track_id: i64, b: &Labelled) -> NewSegment {
+pub(crate) fn new_segment(track_id: i64, b: &Labelled) -> NewSegment {
     NewSegment {
         track_id: Some(track_id),
         speaker_label: Some(b.label.clone()),
@@ -736,7 +728,7 @@ fn new_segment(track_id: i64, b: &Labelled) -> NewSegment {
     }
 }
 
-fn segment_view(
+pub(crate) fn segment_view(
     meeting_id: i64,
     track_id: i64,
     kind: SourceKind,
@@ -827,101 +819,6 @@ fn start_rolling(
     }
 }
 
-/// The final pass after a recording (VRT-17): transcribe and diarize the whole tracks, replace
-/// every caption and rolling segment, and mark the meeting done.
-fn start_final_pass(
-    app: AppHandle,
-    db: Db,
-    engine: EngineManager,
-    tmp: std::path::PathBuf,
-    meeting_id: i64,
-    duration_ms: i64,
-    tracks: Vec<(TrackRef, std::path::PathBuf)>,
-) {
-    tauri::async_runtime::spawn(async move {
-        let started = std::time::Instant::now();
-        let kinds: HashMap<i64, SourceKind> =
-            tracks.iter().map(|(t, _)| (t.track_id, t.kind)).collect();
-        let decoded = tauri::async_runtime::spawn_blocking(move || {
-            tracks
-                .into_iter()
-                .map(|(t, file)| {
-                    audio::decode_mono(&file, crate::engine::SAMPLE_RATE)
-                        .map(|s| (t, s))
-                        .map_err(|e| e.to_string())
-                })
-                .collect::<Result<Vec<_>, String>>()
-        })
-        .await
-        .map_err(|e| e.to_string())
-        .and_then(|r| r);
-        let result = match decoded {
-            Ok(tracks) => rolling::final_pass(&engine, tracks, &tmp).await,
-            Err(e) => Err(e),
-        };
-        match result {
-            Ok((blocks, voices)) => {
-                let named = named_stretches(&db, meeting_id).await;
-                let rows: Vec<NewSegment> =
-                    blocks.iter().map(|(id, b)| new_segment(*id, b)).collect();
-                let saved = db
-                    .replace_segments(
-                        meeting_id,
-                        &[Pass::Caption, Pass::Rolling, Pass::Final],
-                        0,
-                        i64::MAX,
-                        Pass::Final,
-                        &rows,
-                    )
-                    .await;
-                if let Err(e) = saved {
-                    eprintln!("saving the final pass failed: {e}");
-                }
-                if let Err(e) = relabel_final(&db, meeting_id, &blocks, &voices, &named).await {
-                    eprintln!("matching speakers after the final pass failed: {e}");
-                }
-                eprintln!(
-                    "meeting {meeting_id}: final pass done in {:.1} s",
-                    started.elapsed().as_secs_f64()
-                );
-                let segments = blocks
-                    .into_iter()
-                    .map(|(id, b)| segment_view(meeting_id, id, kinds[&id], "final", b))
-                    .collect();
-                let _ = app.emit(
-                    "transcript:final",
-                    PassEvent {
-                        meeting_id,
-                        from_ms: 0,
-                        to_ms: duration_ms as u32,
-                        segments,
-                    },
-                );
-                let _ = app.emit(
-                    "speakers:changed",
-                    SpeakersChanged {
-                        meeting_id: Some(meeting_id),
-                    },
-                );
-            }
-            Err(message) => {
-                // The captions and rolling segments stay; the meeting is still usable.
-                eprintln!("final pass failed for meeting {meeting_id}: {message}");
-                let _ = app.emit(
-                    "transcript:error",
-                    CaptionError {
-                        meeting_id,
-                        message,
-                    },
-                );
-            }
-        }
-        if let Err(e) = db.finish_meeting(meeting_id, duration_ms, "done").await {
-            eprintln!("marking meeting {meeting_id} done failed: {e}");
-        }
-    });
-}
-
 /// Who the speakers are changed (event `speakers:changed`); None = people in general.
 #[derive(Debug, Clone, Serialize)]
 pub struct SpeakersChanged {
@@ -945,7 +842,7 @@ async fn store_voices(db: &Db, meeting_id: i64, voices: &[LabelVoice]) -> Result
 }
 
 /// Stretches of the meeting the user named before the final pass: (track, start, end, person).
-async fn named_stretches(db: &Db, meeting_id: i64) -> Vec<(i64, i64, i64, i64)> {
+pub(crate) async fn named_stretches(db: &Db, meeting_id: i64) -> Vec<(i64, i64, i64, i64)> {
     let (Ok(voices), Ok(segments)) = (
         db.meeting_voices(meeting_id).await,
         db.list_segments(meeting_id).await,
@@ -968,7 +865,7 @@ async fn named_stretches(db: &Db, meeting_id: i64) -> Vec<(i64, i64, i64, i64)> 
 
 /// After the final pass: the new labels take the names the user gave during the recording
 /// (by overlap with the named stretches), then the rest is matched against the registry.
-async fn relabel_final(
+pub(crate) async fn relabel_final(
     db: &Db,
     meeting_id: i64,
     blocks: &[(i64, Labelled)],
@@ -1204,6 +1101,59 @@ pub async fn delete_person(app: AppHandle, db: State<'_, Db>, id: i64) -> Result
     db.delete_speaker(id).await.map_err(|e| e.to_string())?;
     let _ = app.emit("speakers:changed", SpeakersChanged { meeting_id: None });
     Ok(())
+}
+
+/// Import recordings made elsewhere (VRT-19): each file becomes a meeting with a transcript.
+#[tauri::command]
+pub fn import_audio(
+    engine: State<'_, EngineManager>,
+    jobs: State<'_, Jobs>,
+    paths: Vec<String>,
+) -> Result<Vec<u64>, String> {
+    let status = engine.status();
+    if !(status.engine_installed && status.model_installed) {
+        return Err("Download the transcription engine in Settings before importing".into());
+    }
+    Ok(paths
+        .into_iter()
+        .map(|p| jobs.import(std::path::PathBuf::from(p)))
+        .collect())
+}
+
+/// Transcribe a meeting again from its tracks, replacing its transcript (VRT-19).
+#[tauri::command]
+pub async fn retranscribe(
+    db: State<'_, Db>,
+    jobs: State<'_, Jobs>,
+    meeting_id: i64,
+) -> Result<u64, String> {
+    if jobs.busy(meeting_id) {
+        return Err("This meeting is already being transcribed".into());
+    }
+    let meeting = db
+        .get_meeting(meeting_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("no such meeting")?;
+    if meeting.status == "recording" {
+        return Err("Stop the recording first".into());
+    }
+    let name = if meeting.title.is_empty() {
+        "Untitled meeting".into()
+    } else {
+        meeting.title
+    };
+    Ok(jobs.transcribe(meeting_id, name))
+}
+
+#[tauri::command]
+pub fn list_jobs(jobs: State<'_, Jobs>) -> Vec<JobView> {
+    jobs.list()
+}
+
+#[tauri::command]
+pub fn dismiss_job(jobs: State<'_, Jobs>, id: u64) {
+    jobs.dismiss(id);
 }
 
 /// Engine and model state (Settings > Transcription, VRT-14).

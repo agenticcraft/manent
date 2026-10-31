@@ -1,53 +1,11 @@
 import { ArrowDown } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { SpeakerChip } from "@/components/SpeakerChip";
-import { formatDuration } from "@/lib/format";
-import { call, on, type RecordingStarted, type TranscriptSegment, type VoiceView } from "@/lib/ipc";
-import { cn } from "@/lib/utils";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { TranscriptBlocks } from "@/components/TranscriptBlocks";
+import { sorted, useSpeakers } from "@/lib/transcript";
+import { call, on, type RecordingStarted, type TranscriptSegment } from "@/lib/ipc";
 
-/** A new block starts when the speaker changes or after a pause this long. */
-const BLOCK_GAP_MS = 1500;
 /** Within this distance from the bottom the view keeps following new text. */
 const FOLLOW_PX = 48;
-
-interface Block {
-  key: string;
-  /** Who: a pass label ("me", "1", ...) or, for captions, the source kind. */
-  who: string;
-  label: string | null;
-  kind: TranscriptSegment["kind"];
-  start_ms: number;
-  end_ms: number;
-  segments: TranscriptSegment[];
-}
-
-const whoOf = (s: TranscriptSegment) => s.label ?? `caption-${s.kind}`;
-
-function sorted(list: TranscriptSegment[]): TranscriptSegment[] {
-  return [...list].sort((a, b) => a.start_ms - b.start_ms || a.track_id - b.track_id);
-}
-
-function toBlocks(segments: TranscriptSegment[]): Block[] {
-  const blocks: Block[] = [];
-  for (const s of segments) {
-    const last = blocks[blocks.length - 1] as Block | undefined;
-    if (last && last.who === whoOf(s) && s.start_ms - last.end_ms < BLOCK_GAP_MS) {
-      last.segments.push(s);
-      last.end_ms = Math.max(last.end_ms, s.end_ms);
-    } else {
-      blocks.push({
-        key: `${whoOf(s)}-${s.track_id}-${s.start_ms}`,
-        who: whoOf(s),
-        label: s.label,
-        kind: s.kind,
-        start_ms: s.start_ms,
-        end_ms: s.end_ms,
-        segments: [s],
-      });
-    }
-  }
-  return blocks;
-}
 
 /**
  * The live transcript (VRT-16/VRT-17): captions appear first in light grey per source; every
@@ -64,13 +22,11 @@ export function LiveTranscript({
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [following, setFollowing] = useState(true);
-  const [meName, setMeName] = useState("Me");
-  const [voices, setVoices] = useState<VoiceView[]>([]);
+  const { voices, meName, renameMe } = useSpeakers(session.meeting_id, setError);
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const id = session.meeting_id;
-    call("get_me_name").then(setMeName, () => {});
     call("live_transcript", { meetingId: id }).then(
       (list) => setSegments((cur) => (cur.length ? cur : sorted(list))),
       () => {},
@@ -100,24 +56,16 @@ export function LiveTranscript({
     const offError = on("transcript:error", (e) => {
       if (e.meeting_id === id) setError(e.message);
     });
-    // Who the speakers are (VRT-18): reloaded after every pass and every naming.
-    const loadVoices = () => call("meeting_voices", { meetingId: id }).then(setVoices, () => {});
-    loadVoices();
-    const offSpeakers = on("speakers:changed", (e) => {
-      if (e.meeting_id === null || e.meeting_id === id) loadVoices();
-    });
     return () => {
-      for (const off of [offCaption, offPass, offError, offSpeakers]) off.then((f) => f());
+      for (const off of [offCaption, offPass, offError]) off.then((f) => f());
     };
   }, [session.meeting_id]);
-
-  const blocks = useMemo(() => toBlocks(segments), [segments]);
 
   // Keep the newest text in view unless the user scrolled up to read.
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && following) el.scrollTop = el.scrollHeight;
-  }, [blocks, following]);
+  }, [segments, following]);
 
   const onScroll = () => {
     const el = scroller.current;
@@ -130,16 +78,6 @@ export function LiveTranscript({
     setFollowing(true);
   };
 
-  const renameMe = async (name: string) => {
-    const next = name.trim() || "Me";
-    setMeName(next);
-    try {
-      await call("set_me_name", { name: next });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
   if (!session.captions) {
     return (
       <Placeholder>
@@ -147,7 +85,7 @@ export function LiveTranscript({
       </Placeholder>
     );
   }
-  if (blocks.length === 0) {
+  if (segments.length === 0) {
     return (
       <Placeholder>
         {paused
@@ -166,56 +104,14 @@ export function LiveTranscript({
         className="min-h-0 flex-1 overflow-y-auto pr-2"
         data-testid="live-transcript"
       >
-        <div className="flex max-w-3xl flex-col gap-3 pb-6">
-          {blocks.map((b, i) => {
-            const current = i === blocks.length - 1;
-            const caption = b.label === null;
-            return (
-              <article
-                key={b.key}
-                className={cn(
-                  "flex flex-col gap-1 rounded-lg px-3 py-2 transition-colors duration-500",
-                  current && "bg-muted/60",
-                )}
-                data-testid="caption-block"
-                data-kind={b.kind}
-                data-label={b.label ?? ""}
-                data-current={current}
-              >
-                <header className="flex items-center gap-2 text-xs">
-                  <SpeakerChip
-                    meetingId={session.meeting_id}
-                    voices={voices}
-                    label={b.label}
-                    kind={b.kind}
-                    meName={meName}
-                    onRenameMe={renameMe}
-                  />
-                  <span className="text-muted-foreground tabular-nums">
-                    {formatDuration(b.start_ms)}
-                  </span>
-                </header>
-                <p
-                  className={cn(
-                    "text-[15px] leading-relaxed",
-                    caption ? "text-caption" : "text-foreground",
-                  )}
-                >
-                  {b.segments.map((s) => (
-                    <span
-                      key={`${s.pass}-${s.track_id}-${s.start_ms}`}
-                      className="animate-in duration-500 fade-in"
-                      data-testid={caption ? "caption" : "segment"}
-                      data-start-ms={s.start_ms}
-                    >
-                      {s.text}{" "}
-                    </span>
-                  ))}
-                </p>
-              </article>
-            );
-          })}
-        </div>
+        <TranscriptBlocks
+          meetingId={session.meeting_id}
+          segments={segments}
+          voices={voices}
+          meName={meName}
+          onRenameMe={renameMe}
+          highlightLast
+        />
       </div>
       {error && (
         <p className="pt-2 text-xs text-destructive" role="status" data-testid="caption-error">

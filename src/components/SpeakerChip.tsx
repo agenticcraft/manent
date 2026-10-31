@@ -74,13 +74,21 @@ export function SpeakerChip({
     <span className="relative">
       <button
         type="button"
-        className={cn(CHIP, speakerBg(person ? person.color : Number(label)), "hover:opacity-80")}
+        // People have their own colour; unnamed speakers an outline with a dot, so a "Speaker 3"
+        // never looks like the person whose colour happens to be 3.
+        className={cn(
+          CHIP,
+          person
+            ? cn(speakerBg(person.color), "hover:opacity-80")
+            : "inline-flex items-center gap-1.5 border border-border hover:bg-muted",
+        )}
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         data-testid="speaker-chip"
         data-speaker={label}
         data-person={person?.name ?? ""}
       >
+        {!person && <span className={cn("size-2 rounded-full", speakerBg(Number(label)))} />}
         {person ? person.name : `Speaker ${label}`}
         {suggestion && (
           <span className="ml-1 font-normal text-foreground/70" data-testid="suggestion">

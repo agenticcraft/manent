@@ -1,11 +1,28 @@
 import { FileAudio, Mic, NotebookText, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { EmptyState } from "@/components/EmptyState";
+import { JobsPanel } from "@/components/JobsPanel";
 import { MeetingRow } from "@/components/MeetingRow";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { call, type MeetingSummary } from "@/lib/ipc";
+import { call, on, type JobView, type MeetingSummary } from "@/lib/ipc";
+
+/** What "Import audio" offers (decision-3: what symphonia reads). */
+const IMPORT_EXTENSIONS = [
+  "wav",
+  "mp3",
+  "m4a",
+  "mp4",
+  "aac",
+  "mov",
+  "flac",
+  "ogg",
+  "oga",
+  "mkv",
+  "webm",
+];
 
 /** Library (doc-3 screen 1): searchable list of meetings, newest first. */
 export function Library({
@@ -23,10 +40,38 @@ export function Library({
   const [query, setQuery] = useState("");
   const [starting, setStarting] = useState(false);
 
+  const [jobs, setJobs] = useState<JobView[]>([]);
+
   const load = useCallback(() => {
     call("list_meetings").then(setMeetings, (e: unknown) => setError(String(e)));
   }, []);
   useEffect(load, [load]);
+
+  // Background imports and transcriptions: the list follows them (new meetings, statuses).
+  useEffect(() => {
+    call("list_jobs").then(setJobs, () => {});
+    const off = on("jobs:changed", (list) => {
+      setJobs(list);
+      load();
+    });
+    return () => {
+      off.then((f) => f());
+    };
+  }, [load]);
+
+  const importFiles = async () => {
+    setError(null);
+    try {
+      const picked = await open({
+        multiple: true,
+        title: "Import recordings",
+        filters: [{ name: "Audio and video", extensions: IMPORT_EXTENSIONS }],
+      });
+      if (picked && picked.length > 0) await call("import_audio", { paths: picked });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const visible = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
@@ -45,7 +90,7 @@ export function Library({
 
   const actions = (
     <>
-      <Button variant="ghost" size="sm" disabled>
+      <Button variant="ghost" size="sm" onClick={importFiles} data-testid="import-audio">
         <FileAudio /> Import audio
       </Button>
       <Button
@@ -78,9 +123,11 @@ export function Library({
           {error}
         </p>
       )}
+      <JobsPanel jobs={jobs} onOpenMeeting={onOpenMeeting} />
       {meetings && meetings.length === 0 && (
         <EmptyState icon={NotebookText} title="No meetings yet">
-          Record a meeting or import an audio file. Transcripts in Dutch and English appear here.
+          Record a meeting, or import an audio or video file (or drop it here). Transcripts in Dutch
+          and English appear here.
         </EmptyState>
       )}
       {meetings && meetings.length > 0 && (

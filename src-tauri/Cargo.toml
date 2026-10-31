@@ -36,7 +36,7 @@ rtrb = "0.4.1"
 thiserror = "2.0.21"
 flacenc = "0.5"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
-tokio = { version = "1.54.1", features = ["sync", "macros"] }
+tokio = { version = "1.54.1", features = ["sync", "macros", "time"] }
 opus = "0.4"
 ogg = "0.9.2"
 claxon = "0.4.3"
@@ -49,6 +49,8 @@ sha2 = "0.11"
 flate2 = "1"
 tar = "0.4"
 hound = "3.5"
+symphonia = { version = "0.6", features = ["mp3", "aac", "alac", "isomp4"] }
+tauri-plugin-dialog = "2"
 
 
 # Optimise dependencies (FLAC encoder, audio) in dev builds too, so `tauri dev` keeps up in real time.

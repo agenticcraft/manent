@@ -8,6 +8,7 @@ mod commands;
 #[allow(dead_code)]
 mod db;
 mod engine;
+mod jobs;
 mod live;
 mod media_server;
 mod passes;
@@ -20,6 +21,8 @@ mod test_util;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // File dialog for "Import audio" (VRT-19, decision-3).
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Open the database and run migrations before any window can use it.
             let paths = paths::AppPaths::resolve(app.path().app_data_dir()?);
@@ -30,9 +33,27 @@ pub fn run() {
             let engine = engine::EngineManager::new(paths.clone(), move |status| {
                 let _ = handle.emit("engine:status", status);
             });
+            let jobs = jobs::Jobs::new(
+                Some(app.handle().clone()),
+                db.clone(),
+                engine.clone(),
+                paths.clone(),
+            );
+            // A transcription interrupted by quitting the app runs again.
+            for m in tauri::async_runtime::block_on(db.list_meetings())? {
+                if m.status == "processing" {
+                    let name = if m.title.is_empty() {
+                        "Untitled meeting".to_string()
+                    } else {
+                        m.title
+                    };
+                    jobs.transcribe(m.id, name);
+                }
+            }
             app.manage(db);
             app.manage(media);
             app.manage(engine);
+            app.manage(jobs);
             app.manage(paths);
             Ok(())
         })
@@ -66,6 +87,10 @@ pub fn run() {
             commands::rename_person,
             commands::merge_people,
             commands::delete_person,
+            commands::import_audio,
+            commands::retranscribe,
+            commands::list_jobs,
+            commands::dismiss_job,
             commands::engine_status,
             commands::engine_download,
             commands::engine_cancel_download,

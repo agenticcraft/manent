@@ -88,6 +88,19 @@ export interface VoiceView {
   confirmed: boolean;
 }
 
+/** A background transcription job (Rust: jobs::JobView). */
+export interface JobView {
+  id: number;
+  kind: "import" | "transcribe";
+  /** File or meeting name. */
+  name: string;
+  meeting_id: number | null;
+  stage: "waiting" | "decoding" | "transcribing" | "done" | "failed";
+  /** 0..1 (transcription is an estimate from the audio length). */
+  progress: number;
+  error: string | null;
+}
+
 /** A known person on the Speakers screen (Rust: db::Person). */
 export interface Person {
   id: number;
@@ -233,6 +246,10 @@ export interface Commands {
   confirm_suggestion: { args: { meetingId: number; label: string }; result: null };
   merge_labels: { args: { meetingId: number; from: string; into: string }; result: null };
   list_people: { args: NoArgs; result: Person[] };
+  import_audio: { args: { paths: string[] }; result: number[] };
+  retranscribe: { args: { meetingId: number }; result: number };
+  list_jobs: { args: NoArgs; result: JobView[] };
+  dismiss_job: { args: { id: number }; result: null };
   rename_person: { args: { id: number; name: string }; result: null };
   merge_people: { args: { keep: number; merged: number }; result: null };
   delete_person: { args: { id: number }; result: null };
@@ -260,6 +277,8 @@ export interface Events {
   "transcript:final": PassEvent;
   /** Who the speakers are changed; meeting_id null = people in general (VRT-18). */
   "speakers:changed": { meeting_id: number | null };
+  /** The job list changed (VRT-19). */
+  "jobs:changed": JobView[];
 }
 
 type ArgsOf<K extends keyof Commands> = Commands[K]["args"] extends NoArgs
