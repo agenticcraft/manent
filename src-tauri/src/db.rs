@@ -256,6 +256,16 @@ impl Db {
         Ok(id)
     }
 
+    /// Record a track's final length (tracks are added when recording starts).
+    pub async fn set_track_seconds(&self, id: i64, seconds: f64) -> Result<()> {
+        sqlx::query("UPDATE tracks SET seconds = ? WHERE id = ?")
+            .bind(seconds)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_tracks(&self, meeting_id: i64) -> Result<Vec<Track>> {
         Ok(
             sqlx::query_as("SELECT * FROM tracks WHERE meeting_id = ? ORDER BY id")
@@ -654,6 +664,8 @@ mod tests {
         };
         let t = db.add_track(m, &track).await.unwrap();
         assert_eq!(db.list_tracks(m).await.unwrap()[0].id, t);
+        db.set_track_seconds(t, 7.25).await.unwrap();
+        assert_eq!(db.list_tracks(m).await.unwrap()[0].seconds, 7.25);
         db.insert_segments(m, Pass::Final, &[seg(0, "hallo wereld")])
             .await
             .unwrap();

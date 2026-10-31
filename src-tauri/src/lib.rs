@@ -7,9 +7,8 @@ mod commands;
 // Query functions are consumed from VRT-7/VRT-8 on; remove this allow there.
 #[allow(dead_code)]
 mod db;
-// The Engine trait is consumed by live transcription (VRT-16); remove this allow there.
-#[allow(dead_code)]
 mod engine;
+mod live;
 mod media_server;
 mod paths;
 mod speakers;
@@ -54,6 +53,7 @@ pub fn run() {
             commands::list_meetings,
             commands::delete_meeting,
             commands::get_meeting,
+            commands::live_captions,
             commands::engine_status,
             commands::engine_download,
             commands::engine_cancel_download,

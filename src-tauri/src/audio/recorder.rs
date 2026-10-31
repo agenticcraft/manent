@@ -4,6 +4,10 @@
 //! Every tick (~20 Hz) it drains each source's ring into that source's FLAC file and reports
 //! the level. Pausing keeps the streams running but discards samples on all tracks at once,
 //! so the files stay valid and the tracks stay aligned.
+//!
+//! A track can also feed live transcription (VRT-16): it sends exactly what it writes
+//! (silence while muted, nothing while paused) to a consumer, so caption times line up with
+//! the track file.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -77,7 +81,10 @@ pub fn track_file_names(sources: &[SourceInfo]) -> Vec<String> {
         .collect()
 }
 
-/// The consumer side of one track: ring -> FLAC file.
+/// Interleaved blocks of what a track writes, at the source's rate and channel count.
+pub type Feed = mpsc::Sender<Vec<f32>>;
+
+/// The consumer side of one track: ring -> FLAC file (and optionally a feed).
 pub struct Track {
     pub info: SourceInfo,
     pub file: PathBuf,
@@ -86,6 +93,7 @@ pub struct Track {
     buf: Vec<f32>,
     muted: bool,
     silence: Vec<f32>,
+    feed: Option<Feed>,
 }
 
 impl Track {
@@ -105,7 +113,13 @@ impl Track {
             buf: Vec::with_capacity(sample_rate as usize * channels as usize / 10),
             muted: false,
             silence: Vec::new(),
+            feed: None,
         })
+    }
+
+    /// Also send everything written to `feed` (dropped when the track finishes).
+    pub fn set_feed(&mut self, feed: Option<Feed>) {
+        self.feed = feed;
     }
 
     pub fn set_muted(&mut self, muted: bool) {
@@ -118,12 +132,20 @@ impl Track {
         self.buf.clear();
         self.reader.drain_into(&mut self.buf);
         if !paused {
-            if self.muted {
+            let written = if self.muted {
                 self.silence.clear();
                 self.silence.resize(self.buf.len(), 0.0);
-                self.writer.write(&self.silence)?;
+                &self.silence
             } else {
-                self.writer.write(&self.buf)?;
+                &self.buf
+            };
+            self.writer.write(written)?;
+            if let Some(feed) = &self.feed
+                && !written.is_empty()
+                && feed.send(written.clone()).is_err()
+            {
+                // The consumer is gone (e.g. transcription failed): keep recording.
+                self.feed = None;
             }
         }
         let level = levels::measure(&self.buf);
@@ -167,10 +189,13 @@ pub struct Recording {
 
 impl Recording {
     /// Start recording `sources` into `dir`. Returns once every source is capturing.
+    /// `on_track(index, source, sample_rate, channels)` runs once per opened source and may
+    /// return a feed for that track (live transcription).
     pub fn start(
         dir: &Path,
         sources: Vec<SourceInfo>,
         mut on_level: impl FnMut(LevelEvent) + Send + 'static,
+        mut on_track: impl FnMut(usize, &SourceInfo, u32, u16) -> Option<Feed> + Send + 'static,
     ) -> Result<Self, RecorderError> {
         if sources.is_empty() {
             return Err(RecorderError::NoSources);
@@ -189,10 +214,13 @@ impl Recording {
                 let mut streams = Vec::new();
                 let mut tracks = Vec::new();
                 let opened = (|| -> Result<(), RecorderError> {
-                    for (info, file) in sources.into_iter().zip(files) {
+                    for (i, (info, file)) in sources.into_iter().zip(files).enumerate() {
                         let (mut source, reader) = CpalSource::open(info.clone())?;
                         let f = source.format();
-                        tracks.push(Track::new(info, file, reader, f.sample_rate, f.channels)?);
+                        let feed = on_track(i, &info, f.sample_rate, f.channels);
+                        let mut track = Track::new(info, file, reader, f.sample_rate, f.channels)?;
+                        track.set_feed(feed);
+                        tracks.push(track);
                         source.start()?;
                         streams.push(source);
                     }
@@ -383,6 +411,38 @@ mod tests {
     }
 
     #[test]
+    fn the_feed_gets_what_is_written() {
+        let dir = tempfile_dir();
+        let (mut w, r) = sample_ring(16_000);
+        let mut track = Track::new(
+            info("mic", SourceKind::Mic),
+            dir.join("mic.flac"),
+            r,
+            16_000,
+            1,
+        )
+        .unwrap();
+        let (tx, rx) = mpsc::channel();
+        track.set_feed(Some(tx));
+        let block = vec![0.5f32; 800];
+        // written, paused (not written), muted (silence written)
+        for (paused, muted) in [(false, false), (true, false), (false, true)] {
+            track.set_muted(muted);
+            w.push(&block);
+            track.tick(paused).unwrap();
+        }
+        let got: Vec<Vec<f32>> = rx.try_iter().collect();
+        assert_eq!(got.len(), 2, "nothing is fed while paused");
+        assert_eq!(got[0], block);
+        assert_eq!(got[1], vec![0.0; 800], "muted audio is fed as silence");
+        track.finish().unwrap();
+        assert!(
+            rx.recv().is_err(),
+            "the feed closes when the track finishes"
+        );
+    }
+
+    #[test]
     fn run_loop_emits_levels_per_track_and_honours_pause() {
         let dir = tempfile_dir();
         let (mut w1, r1) = sample_ring(48_000);
@@ -462,6 +522,7 @@ mod tests {
             &dir,
             vec![pick(SourceKind::Mic), pick(SourceKind::Loopback)],
             move |e| sink.lock().unwrap().push((Instant::now(), e)),
+            |_, _, _, _| None,
         )
         .unwrap();
         let t0 = Instant::now();

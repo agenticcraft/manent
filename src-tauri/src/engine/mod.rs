@@ -5,6 +5,8 @@
 pub mod assets;
 pub mod download;
 pub mod helper;
+// File transcription and speakers are used by the rolling and final passes (VRT-17).
+#[allow(dead_code)]
 pub mod transcript;
 
 use std::path::{Path, PathBuf};
@@ -23,6 +25,7 @@ pub use transcript::{Diarization, Segment, Transcript};
 pub const SAMPLE_RATE: u32 = 16_000;
 
 /// A file transcribed and diarized: speaker blocks plus the speakers' voice profiles.
+#[allow(dead_code)] // VRT-17
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FileTranscript {
     pub segments: Vec<Segment>,
@@ -31,6 +34,7 @@ pub struct FileTranscript {
 
 /// All transcription goes through this trait (AGENTS.md), so the helper-process engine can
 /// be swapped for an in-process one (mobile). Audio is 16 kHz mono.
+#[allow(dead_code)] // transcribe_file and speaker_profiles: VRT-17
 pub trait Engine {
     /// A live caption chunk (4-8 s): words with timestamps, no speakers.
     fn transcribe_chunk(

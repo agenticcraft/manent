@@ -28,6 +28,34 @@ export interface RecordingStarted {
   /** Unix epoch milliseconds. */
   started_at: number;
   sources: SourceInfo[];
+  /** Live captions are on (the engine and model are downloaded). */
+  captions: boolean;
+}
+
+/** A recognised word; times are milliseconds on the track (Rust: engine::transcript::Word). */
+export interface Word {
+  text: string;
+  start_ms: number;
+  end_ms: number;
+  conf: number;
+}
+
+/** One transcribed live chunk of one track (Rust: live::Caption). */
+export interface Caption {
+  meeting_id: number;
+  track_id: number;
+  source_id: string;
+  kind: SourceKind;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  words: Word[];
+}
+
+/** A caption could not be made; the recording goes on (Rust: commands::CaptionError). */
+export interface CaptionError {
+  meeting_id: number;
+  message: string;
 }
 
 /** What was written for one source when a recording stops (Rust: audio::TrackSummary). */
@@ -153,6 +181,7 @@ export interface Commands {
   list_meetings: { args: NoArgs; result: MeetingSummary[] };
   delete_meeting: { args: { id: number }; result: boolean };
   get_meeting: { args: { id: number }; result: MeetingDetail | null };
+  live_captions: { args: { meetingId: number }; result: Caption[] };
   engine_status: { args: NoArgs; result: EngineStatus };
   engine_download: { args: NoArgs; result: null };
   engine_cancel_download: { args: NoArgs; result: null };
@@ -167,6 +196,9 @@ export interface Events {
   "audio:monitor-level": LevelEvent;
   /** Every change of the engine, model download and helper state. */
   "engine:status": EngineStatus;
+  /** A live caption chunk (VRT-16). */
+  "transcript:caption": Caption;
+  "transcript:error": CaptionError;
 }
 
 type ArgsOf<K extends keyof Commands> = Commands[K]["args"] extends NoArgs

@@ -6,8 +6,10 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::{self, Monitor, Recording, SourceInfo, SourceKind, TrackSummary};
-use crate::db::{Db, Meeting, NewTrack, Speaker};
+use crate::db::Pass;
+use crate::db::{Db, Meeting, NewSegment, NewTrack, Speaker};
 use crate::engine::{EngineManager, EngineStatus};
+use crate::live::{self, Caption, TrackRef};
 use crate::media_server::{MIX_FILE, MediaServer};
 use crate::paths::AppPaths;
 
@@ -44,6 +46,9 @@ struct ActiveRecording {
     meeting_id: i64,
     started_at: i64,
     sources: Vec<SourceInfo>,
+    /// Database rows of the tracks, in source order (created at start, VRT-16).
+    track_ids: Vec<i64>,
+    captions: bool,
 }
 
 /// The recording in progress, if any.
@@ -56,6 +61,15 @@ pub struct RecordingStarted {
     /// Unix epoch milliseconds.
     pub started_at: i64,
     pub sources: Vec<SourceInfo>,
+    /// Live captions are on (the engine and model are downloaded).
+    pub captions: bool,
+}
+
+/// A caption could not be made (event `transcript:error`); the recording goes on.
+#[derive(Debug, Clone, Serialize)]
+pub struct CaptionError {
+    pub meeting_id: i64,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -193,6 +207,7 @@ pub async fn start_recording(
     monitor: State<'_, MonitorState>,
     db: State<'_, Db>,
     paths: State<'_, AppPaths>,
+    engine: State<'_, EngineManager>,
 ) -> Result<RecordingStarted, String> {
     let mut current = state.0.lock().await;
     if current.is_some() {
@@ -219,10 +234,92 @@ pub async fn start_recording(
     db.set_meeting_dir(meeting_id, &dir.display().to_string())
         .await
         .map_err(|e| e.to_string())?;
+    // Track rows first, so live captions can refer to them while recording.
+    let mut track_ids = Vec::new();
+    for (source, name) in sources.iter().zip(audio::track_file_names(&sources)) {
+        let track = NewTrack {
+            source_kind: kind_str(source.kind),
+            source_id: &source.id,
+            device_name: &source.name,
+            path: &dir.join(name).display().to_string(),
+            seconds: 0.0,
+        };
+        match db.add_track(meeting_id, &track).await {
+            Ok(id) => track_ids.push(id),
+            Err(e) => {
+                let _ = db.delete_meeting(meeting_id).await;
+                return Err(e.to_string());
+            }
+        }
+    }
+    let status = engine.status();
+    let captions = status.engine_installed && status.model_installed;
     let events = app.clone();
-    let recording = match Recording::start(&dir, sources.clone(), move |level| {
-        let _ = events.emit("audio:level", level);
-    }) {
+    let on_track = {
+        let (app, db, engine, ids) = (
+            app.clone(),
+            db.inner().clone(),
+            engine.inner().clone(),
+            track_ids.clone(),
+        );
+        move |i: usize, source: &SourceInfo, rate: u32, channels: u16| {
+            if !captions {
+                return None;
+            }
+            let track = TrackRef {
+                meeting_id,
+                track_id: ids[i],
+                source_id: source.id.clone(),
+                kind: source.kind,
+            };
+            let (app, err_app, db) = (app.clone(), app.clone(), db.clone());
+            let on_caption = move |c: Caption| {
+                let segment = NewSegment {
+                    track_id: Some(c.track_id),
+                    start_ms: c.start_ms.into(),
+                    end_ms: c.end_ms.into(),
+                    text: c.text.clone(),
+                    words_json: serde_json::to_string(&c.words).ok(),
+                    ..Default::default()
+                };
+                let saved = tauri::async_runtime::block_on(db.insert_segments(
+                    c.meeting_id,
+                    Pass::Caption,
+                    &[segment],
+                ));
+                if let Err(e) = saved {
+                    eprintln!("saving a caption failed: {e}");
+                }
+                let _ = app.emit("transcript:caption", c);
+            };
+            let on_error = move |message: String| {
+                eprintln!("caption failed: {message}");
+                let _ = err_app.emit(
+                    "transcript:error",
+                    CaptionError {
+                        meeting_id,
+                        message,
+                    },
+                );
+            };
+            match live::spawn(track, rate, channels, engine.clone(), on_caption, on_error) {
+                Ok((feed, _worker)) => Some(feed),
+                Err(e) => {
+                    eprintln!("starting live captions failed: {e}");
+                    None
+                }
+            }
+        }
+    };
+    let opening = std::time::Instant::now();
+    let recording = match Recording::start(
+        &dir,
+        sources.clone(),
+        move |level| {
+            let _ = events.emit("audio:level", level);
+        },
+        on_track,
+    ) {
         Ok(r) => r,
         Err(e) => {
             let _ = db.delete_meeting(meeting_id).await;
@@ -230,16 +327,35 @@ pub async fn start_recording(
             return Err(e.to_string());
         }
     };
+    // Track time 0 is when capture began, after the devices opened (this can take a moment
+    // with PipeWire); the UI timer and caption times use this, not the time of the click.
+    let started_at = started_at + opening.elapsed().as_millis() as i64;
+    eprintln!(
+        "recording {meeting_id}: capture started {} ms after the request",
+        opening.elapsed().as_millis()
+    );
+    if captions {
+        // Load the model now, so the first chunk doesn't wait for it.
+        let engine = engine.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = engine.start().await {
+                eprintln!("engine start for live captions failed: {e}");
+            }
+        });
+    }
     *current = Some(ActiveRecording {
         recording,
         meeting_id,
         started_at,
         sources: sources.clone(),
+        track_ids,
+        captions,
     });
     Ok(RecordingStarted {
         meeting_id,
         started_at,
         sources,
+        captions,
     })
 }
 
@@ -252,6 +368,7 @@ pub async fn current_recording(
         meeting_id: a.meeting_id,
         started_at: a.started_at,
         sources: a.sources.clone(),
+        captions: a.captions,
     }))
 }
 
@@ -297,19 +414,8 @@ pub async fn stop_recording(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
-    for (t, source) in tracks.iter().zip(&active.sources) {
-        let kind = match t.kind {
-            SourceKind::Mic => "mic",
-            SourceKind::Loopback => "loopback",
-        };
-        let track = NewTrack {
-            source_kind: kind,
-            source_id: &t.source_id,
-            device_name: &source.name,
-            path: &t.file.display().to_string(),
-            seconds: t.seconds,
-        };
-        db.add_track(meeting_id, &track)
+    for (t, id) in tracks.iter().zip(&active.track_ids) {
+        db.set_track_seconds(*id, t.seconds)
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -426,6 +532,51 @@ pub async fn delete_meeting(
             .map_err(|e| format!("could not delete {}: {e}", dir.display()))?;
     }
     db.delete_meeting(id).await.map_err(|e| e.to_string())
+}
+
+fn kind_str(kind: SourceKind) -> &'static str {
+    match kind {
+        SourceKind::Mic => "mic",
+        SourceKind::Loopback => "loopback",
+    }
+}
+
+/// The live captions of a meeting so far, e.g. when the Live screen is opened again.
+#[tauri::command]
+pub async fn live_captions(db: State<'_, Db>, meeting_id: i64) -> Result<Vec<Caption>, String> {
+    let tracks = db
+        .list_tracks(meeting_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let segments = db
+        .list_segments(meeting_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(segments
+        .into_iter()
+        .filter(|s| s.pass == "caption")
+        .filter_map(|s| {
+            let track = tracks.iter().find(|t| Some(t.id) == s.track_id)?;
+            Some(Caption {
+                meeting_id,
+                track_id: track.id,
+                source_id: track.source_id.clone(),
+                kind: if track.source_kind == "mic" {
+                    SourceKind::Mic
+                } else {
+                    SourceKind::Loopback
+                },
+                start_ms: s.start_ms as u32,
+                end_ms: s.end_ms as u32,
+                text: s.text,
+                words: s
+                    .words_json
+                    .as_deref()
+                    .and_then(|w| serde_json::from_str(w).ok())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect())
 }
 
 /// Engine and model state (Settings > Transcription, VRT-14).

@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-10-30T09:40:00Z'
+updated_date: '2026-10-31T15:18:00Z'
 ---
 ## 1. Technical foundation
 
@@ -55,7 +55,12 @@ How the app uses it:
   - **Don't use** `parakeet_capi_transcribe_and_diarize*`: on the NL/EN sample it dropped every English turn and peaked at 9 GB on a 17 min file.
   - Calls on one context queue; `parakeet_capi_set_concurrency` lets live chunks run beside a rolling pass.
 - **Three passes per meeting:**
-  1. **Live captions (app-side chunking, validated in VRT-32):** per track, the app cuts the 16 kHz audio at the quietest 20 ms frame between 4 and 8 s after the previous cut, so a chunk never waits for a pause, and sends each chunk to the engine. Text appeared a median 2.8–4 s and at most ~8 s after it was spoken through LocalAI; direct calls take ~0.4 s per chunk. Accuracy is close to offline (AMI meeting window 19.1% vs 15.1% offline; Dutch interview within 5.5% of offline). Captions are shown in light grey and carry no speaker.
+  1. **Live captions (VRT-16, `live.rs`):** each track feeds its own worker thread with exactly what it writes (silence while muted, nothing while paused), so caption times are track milliseconds, the same timeline as the files and the mix. The worker downmixes, resamples to 16 kHz and cuts chunks as the audio arrives (no look-ahead):
+     - from 4 s on, a chunk ends in the first pause: 160 ms of frames 13 dB below the chunk's median frame or below -55 dBFS (shorter dips occur inside words);
+     - without a pause it ends by 8 s at the quietest 160 ms; the words ending within 300 ms of such a forced cut are dropped and their audio starts the next chunk, so a word cut in two is transcribed whole;
+     - a chunk with sound that comes back empty (parakeet sometimes returns nothing for ~4 s pieces that start or end inside an utterance) is retried as part of a chunk at least 2 s longer, up to 12 s;
+     - chunks below -60 dBFS are not sent (quiet remote speech can be around -50 dBFS).
+     Measured on the real app with the FLEURS NL/EN sample played through the system audio: text a median 3-3.5 s and p90 5-7 s after it is spoken (a retried chunk up to ~10 s), live WER NL 11.2% and EN 11.5-16% on the system track (offline 11.2% / 11.5%). Captions are stored as `caption` segments with their track, shown in light grey per source ("Me" for the mic, "System audio"), and carry no speaker. (The VRT-32 simulation assumed a chunk is ready at its own end, which hid the 8 s look-ahead of a global quietest-frame cut.)
   2. **Rolling pass:** every ~30–60 s the app sends the latest audio (with some overlap) for transcription and diarization. The resulting segments, with speaker labels and names, replace the captions for that stretch. At RTF ~0.06 + 0.03 this keeps up easily on CPU.
   3. **Final pass:** at the end of the meeting the whole recording is transcribed and diarized once more, so speaker labels are consistent across the meeting. This is the stored transcript.
 - **Merging:** the app gives each word the speaker of the diarization segment it overlaps most (nearest segment when none overlaps). Diarization almost never assigns speech to the wrong person (0.1–0.3% on AMI, 6.6% in one meeting with a very quiet speaker); produced audio often yields extra tiny speaker slots (< 8 s of clean speech).

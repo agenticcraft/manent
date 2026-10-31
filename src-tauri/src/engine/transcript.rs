@@ -1,11 +1,11 @@
 //! What the engine returns, parsed from the helper's JSON, and the word/speaker merge
 //! (doc-2 §1.3: each word gets the speaker of the diarization turn it overlaps most).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// One recognised word. Times are milliseconds from the start of the audio sent.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Word {
     pub text: String,
     pub start_ms: u32,

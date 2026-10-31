@@ -4,11 +4,11 @@
 
 mod capture;
 mod flac;
-mod levels;
+pub(crate) mod levels;
 mod mixdown;
 mod monitor;
 mod recorder;
-mod resample;
+pub(crate) mod resample;
 mod ring;
 mod sources;
 
@@ -25,5 +25,5 @@ mod platform;
 pub use capture::list_sources;
 pub use mixdown::mixdown;
 pub use monitor::Monitor;
-pub use recorder::{Recording, TrackSummary};
+pub use recorder::{Feed, Recording, TrackSummary, track_file_names};
 pub use sources::{SourceInfo, SourceKind};

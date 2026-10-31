@@ -1,12 +1,13 @@
 import { Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { LiveTranscript } from "@/components/LiveTranscript";
 import { SourceChip } from "@/components/SourceChip";
 import { Button } from "@/components/ui/button";
 import { formatDuration } from "@/lib/format";
 import { call, on, type RecordingStarted } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
-/** Live recording (doc-3 screen 2). The transcript area is filled in by VRT-16/VRT-17. */
+/** Live recording (doc-3 screen 2). Captions from VRT-16; speakers come with VRT-17. */
 export function Live({ session, onStopped }: { session: RecordingStarted; onStopped: () => void }) {
   const [title, setTitle] = useState("");
   const savedTitle = useRef("");
@@ -84,7 +85,7 @@ export function Live({ session, onStopped }: { session: RecordingStarted; onStop
     });
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3 pb-6">
         <span
           className={cn(
@@ -137,16 +138,7 @@ export function Live({ session, onStopped }: { session: RecordingStarted; onStop
         </p>
       )}
 
-      <section
-        aria-label="Live transcript"
-        className="flex flex-1 items-center justify-center rounded-lg border border-dashed"
-      >
-        <p className="max-w-sm text-center text-sm text-muted-foreground">
-          {paused
-            ? "Paused. Nothing is recorded until you resume."
-            : "Recording. The live transcript will appear here once transcription is set up."}
-        </p>
-      </section>
+      <LiveTranscript session={session} paused={paused} />
     </div>
   );
 }
