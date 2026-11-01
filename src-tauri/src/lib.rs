@@ -14,6 +14,7 @@ mod live;
 mod media_server;
 mod passes;
 mod paths;
+mod power;
 mod rolling;
 mod speakers;
 #[cfg(test)]
@@ -88,6 +89,7 @@ pub fn run() {
             commands::get_me_name,
             commands::set_me_name,
             commands::meeting_voices,
+            commands::meeting_gaps,
             commands::name_speaker,
             commands::confirm_suggestion,
             commands::merge_labels,

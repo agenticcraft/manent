@@ -5,7 +5,14 @@ import { ExportMenu } from "@/components/ExportMenu";
 import { TranscriptBlocks } from "@/components/TranscriptBlocks";
 import { Button } from "@/components/ui/button";
 import { formatDateTime, formatDuration } from "@/lib/format";
-import { call, on, type JobView, type MeetingDetail, type TranscriptSegment } from "@/lib/ipc";
+import {
+  call,
+  on,
+  type Gap,
+  type JobView,
+  type MeetingDetail,
+  type TranscriptSegment,
+} from "@/lib/ipc";
 import { sorted, useSpeakers } from "@/lib/transcript";
 
 /**
@@ -30,9 +37,11 @@ export function Meeting({
   const player = useRef<PlayerHandle>(null);
   const [currentMs, setCurrentMs] = useState<number | undefined>(focusMs);
   const [waveform, setWaveform] = useState<number[]>([]);
+  const [gaps, setGaps] = useState<Gap[]>([]);
 
   useEffect(() => {
     call("meeting_waveform", { id }).then(setWaveform, () => {});
+    call("meeting_gaps", { meetingId: id }).then(setGaps, () => {});
   }, [id]);
 
   // A search match: cue the player there once it exists (it mounts with the meeting).
@@ -155,6 +164,17 @@ export function Meeting({
               )}
             </div>
           )}
+          {segments.length === 0 && gaps.length > 0 && (
+            // No words, but the recording lost audio: still say where.
+            <TranscriptBlocks
+              meetingId={id}
+              segments={[]}
+              voices={voices}
+              meName={meName}
+              onRenameMe={renameMe}
+              gaps={gaps}
+            />
+          )}
           {segments.length > 0 ? (
             <section aria-label="Transcript" data-testid="meeting-transcript">
               <TranscriptBlocks
@@ -166,6 +186,7 @@ export function Meeting({
                 onSeek={meeting.mix_url ? seek : undefined}
                 currentMs={currentMs}
                 focusMs={focusMs}
+                gaps={gaps}
               />
             </section>
           ) : (

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef } from "react";
+import { Moon } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import { SpeakerChip } from "@/components/SpeakerChip";
 import { formatDuration } from "@/lib/format";
-import type { TranscriptSegment, VoiceView } from "@/lib/ipc";
+import type { Gap, TranscriptSegment, VoiceView } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
 /** A new block starts when the speaker changes or after a pause this long. */
@@ -60,6 +61,7 @@ export function TranscriptBlocks({
   onSeek,
   currentMs,
   focusMs,
+  gaps = [],
 }: {
   meetingId: number;
   segments: TranscriptSegment[];
@@ -71,6 +73,8 @@ export function TranscriptBlocks({
   currentMs?: number;
   /** Scroll this moment into view (a search match). */
   focusMs?: number;
+  /** Where the recording lost audio (the computer slept), shown between the blocks. */
+  gaps?: Gap[];
 }) {
   const blocks = useMemo(() => toBlocks(segments), [segments]);
   const root = useRef<HTMLDivElement>(null);
@@ -133,83 +137,121 @@ export function TranscriptBlocks({
         // Live: the newest block. Meeting: set on the DOM with the playing word (above).
         const current = highlightLast && i === blocks.length - 1;
         const caption = b.label === null;
+        const prev = i === 0 ? -Infinity : blocks[i - 1].start_ms;
+        const before = gaps.filter((g) => g.at_ms > prev && g.at_ms <= b.start_ms);
         return (
-          <article
-            key={b.key}
-            className={cn(
-              "flex flex-col gap-1 rounded-lg px-3 py-2 transition-colors duration-500 data-[current=true]:bg-muted/60",
-            )}
-            data-testid="caption-block"
-            data-kind={b.kind}
-            data-label={b.label ?? ""}
-            data-current={highlightLast ? current : undefined}
-            data-block-start={b.start_ms}
-          >
-            <header className="flex items-center gap-2 text-xs">
-              <SpeakerChip
-                meetingId={meetingId}
-                voices={voices}
-                label={b.label}
-                kind={b.kind}
-                meName={meName}
-                onRenameMe={onRenameMe}
-              />
-              {onSeek ? (
-                <button
-                  type="button"
-                  className="text-muted-foreground tabular-nums hover:text-foreground"
-                  onClick={() => onSeek(b.start_ms)}
-                  aria-label={`Play from ${formatDuration(b.start_ms)}`}
-                >
-                  {formatDuration(b.start_ms)}
-                </button>
-              ) : (
-                <span className="text-muted-foreground tabular-nums">
-                  {formatDuration(b.start_ms)}
-                </span>
-              )}
-            </header>
-            <p
+          <Fragment key={b.key}>
+            {before.map((g) => (
+              <GapMarker key={`gap-${g.at_ms}`} gap={g} />
+            ))}
+            <article
               className={cn(
-                "text-[15px] leading-relaxed",
-                caption ? "text-caption" : "text-foreground",
+                "flex flex-col gap-1 rounded-lg px-3 py-2 transition-colors duration-500 data-[current=true]:bg-muted/60",
               )}
+              data-testid="caption-block"
+              data-kind={b.kind}
+              data-label={b.label ?? ""}
+              data-current={highlightLast ? current : undefined}
+              data-block-start={b.start_ms}
             >
-              {b.segments.map((s) =>
-                onSeek && s.words.length > 0 ? (
-                  <span
-                    key={`${s.pass}-${s.track_id}-${s.start_ms}`}
-                    data-testid="segment"
-                    data-start-ms={s.start_ms}
+              <header className="flex items-center gap-2 text-xs">
+                <SpeakerChip
+                  meetingId={meetingId}
+                  voices={voices}
+                  label={b.label}
+                  kind={b.kind}
+                  meName={meName}
+                  onRenameMe={onRenameMe}
+                />
+                {onSeek ? (
+                  <button
+                    type="button"
+                    className="text-muted-foreground tabular-nums hover:text-foreground"
+                    onClick={() => onSeek(b.start_ms)}
+                    aria-label={`Play from ${formatDuration(b.start_ms)}`}
                   >
-                    {s.words.map((w, k) => (
-                      <span key={k}>
-                        <span
-                          className="cursor-pointer rounded-sm transition-colors hover:bg-muted data-[active=true]:bg-brand/20"
-                          onClick={() => onSeek(w.start_ms)}
-                          data-testid="word"
-                          data-word-ms={w.start_ms}
-                        >
-                          {w.text}
-                        </span>{" "}
-                      </span>
-                    ))}
-                  </span>
+                    {formatDuration(b.start_ms)}
+                  </button>
                 ) : (
-                  <span
-                    key={`${s.pass}-${s.track_id}-${s.start_ms}`}
-                    className="animate-in duration-500 fade-in"
-                    data-testid={caption ? "caption" : "segment"}
-                    data-start-ms={s.start_ms}
-                  >
-                    {s.text}{" "}
+                  <span className="text-muted-foreground tabular-nums">
+                    {formatDuration(b.start_ms)}
                   </span>
-                ),
-              )}
-            </p>
-          </article>
+                )}
+              </header>
+              <p
+                className={cn(
+                  "text-[15px] leading-relaxed",
+                  caption ? "text-caption" : "text-foreground",
+                )}
+              >
+                {b.segments.map((s) =>
+                  onSeek && s.words.length > 0 ? (
+                    <span
+                      key={`${s.pass}-${s.track_id}-${s.start_ms}`}
+                      data-testid="segment"
+                      data-start-ms={s.start_ms}
+                    >
+                      {s.words.map((w, k) => (
+                        <span key={k}>
+                          <span
+                            className="cursor-pointer rounded-sm transition-colors hover:bg-muted data-[active=true]:bg-brand/20"
+                            onClick={() => onSeek(w.start_ms)}
+                            data-testid="word"
+                            data-word-ms={w.start_ms}
+                          >
+                            {w.text}
+                          </span>{" "}
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span
+                      key={`${s.pass}-${s.track_id}-${s.start_ms}`}
+                      className="animate-in duration-500 fade-in"
+                      data-testid={caption ? "caption" : "segment"}
+                      data-start-ms={s.start_ms}
+                    >
+                      {s.text}{" "}
+                    </span>
+                  ),
+                )}
+              </p>
+            </article>
+          </Fragment>
         );
       })}
+      {gaps
+        .filter((g) => blocks.length === 0 || g.at_ms > blocks[blocks.length - 1].start_ms)
+        .map((g) => (
+          <GapMarker key={`gap-${g.at_ms}`} gap={g} />
+        ))}
     </div>
   );
+}
+
+/** A quiet divider where the recording has no audio because the computer slept. */
+function GapMarker({ gap }: { gap: Gap }) {
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-1 text-xs text-muted-foreground"
+      role="note"
+      data-testid="audio-gap"
+      data-at-ms={gap.at_ms}
+    >
+      <span className="h-px flex-1 bg-border" />
+      <span className="flex items-center gap-1.5">
+        <Moon className="size-3.5" aria-hidden />
+        No audio for {formatGap(gap.missing_ms)} at {formatDuration(gap.at_ms)}: the computer was
+        asleep
+      </span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+function formatGap(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }

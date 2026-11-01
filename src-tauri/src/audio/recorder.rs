@@ -8,11 +8,15 @@
 //! A track can also feed live transcription (VRT-16): it sends exactly what it writes
 //! (silence while muted, nothing while paused) to a consumer, so caption times line up with
 //! the track file.
+//!
+//! When the computer sleeps (VRT-36), capture freezes: no audio arrives while wall-clock time
+//! goes on. The loop notices the jump and reports a [`Gap`] at that point of the recording,
+//! so the meeting can show where audio is missing.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 
@@ -159,6 +163,11 @@ impl Track {
         })
     }
 
+    /// Seconds written so far.
+    pub fn seconds(&self) -> f64 {
+        self.writer.seconds()
+    }
+
     pub fn finish(self) -> Result<TrackSummary, RecorderError> {
         let dropped = self.reader.dropped();
         let seconds = self.writer.seconds();
@@ -169,6 +178,54 @@ impl Track {
             file: self.file,
             seconds,
             dropped_samples: dropped,
+        })
+    }
+}
+
+/// Audio missing from a recording because capture was frozen (the computer slept).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Gap {
+    /// Position in the recording (track time) where the audio stops.
+    pub at_ms: i64,
+    /// How long no audio was captured.
+    pub missing_ms: i64,
+}
+
+/// What a stopped recording wrote.
+#[derive(Debug)]
+pub struct Stopped {
+    pub tracks: Vec<TrackSummary>,
+    pub gaps: Vec<Gap>,
+}
+
+/// Notices wall-clock time passing without audio arriving. Normal buffering and timer jitter
+/// stay far below [`GapDetector::MIN_S`]; a suspend shows up as one large jump on the first
+/// tick after resume. Paused stretches are not gaps (nothing is written on purpose).
+struct GapDetector {
+    last: SystemTime,
+    written: f64,
+}
+
+impl GapDetector {
+    const MIN_S: f64 = 2.0;
+
+    fn new(now: SystemTime, written: f64) -> Self {
+        Self { last: now, written }
+    }
+
+    /// `written` is the seconds written to the tracks so far (they are aligned).
+    fn tick(&mut self, now: SystemTime, written: f64, paused: bool) -> Option<Gap> {
+        // A clock set backwards gives no wall time, never a gap.
+        let wall = now
+            .duration_since(self.last)
+            .map_or(0.0, |d| d.as_secs_f64());
+        let (before, audio) = (self.written, written - self.written);
+        self.last = now;
+        self.written = written;
+        let missing = wall - audio;
+        (!paused && missing >= Self::MIN_S).then(|| Gap {
+            at_ms: (before * 1000.0).round() as i64,
+            missing_ms: (missing * 1000.0).round() as i64,
         })
     }
 }
@@ -184,7 +241,7 @@ enum Control {
 /// headers without totals; always call `stop`.
 pub struct Recording {
     control: mpsc::Sender<Control>,
-    thread: Option<JoinHandle<Result<Vec<TrackSummary>, RecorderError>>>,
+    thread: Option<JoinHandle<Result<Stopped, RecorderError>>>,
 }
 
 impl Recording {
@@ -228,10 +285,13 @@ impl Recording {
                 })();
                 if let Err(e) = opened {
                     let _ = ready_tx.send(Err(e));
-                    return Ok(Vec::new());
+                    return Ok(Stopped {
+                        tracks: Vec::new(),
+                        gaps: Vec::new(),
+                    });
                 }
                 let _ = ready_tx.send(Ok(()));
-                run_loop(&mut tracks, &rx, &mut on_level)?;
+                let gaps = run_loop(&mut tracks, &rx, &mut on_level)?;
                 for s in &mut streams {
                     s.stop()?;
                 }
@@ -239,7 +299,11 @@ impl Recording {
                 for t in &mut tracks {
                     t.tick(false)?;
                 }
-                tracks.into_iter().map(Track::finish).collect()
+                let tracks = tracks
+                    .into_iter()
+                    .map(Track::finish)
+                    .collect::<Result<_, _>>()?;
+                Ok(Stopped { tracks, gaps })
             })?;
 
         match ready_rx.recv() {
@@ -271,7 +335,7 @@ impl Recording {
     }
 
     /// Stop capturing, finish the files and return what was written.
-    pub fn stop(mut self) -> Result<Vec<TrackSummary>, RecorderError> {
+    pub fn stop(mut self) -> Result<Stopped, RecorderError> {
         let _ = self.control.send(Control::Stop);
         let thread = self.thread.take().ok_or(RecorderError::ThreadGone)?;
         thread.join().map_err(|_| RecorderError::ThreadGone)?
@@ -287,13 +351,16 @@ impl Drop for Recording {
     }
 }
 
-/// Tick every track until `Stop`; `Pause`/`Resume` toggle writing.
+/// Tick every track until `Stop`; `Pause`/`Resume` toggle writing. Returns the gaps found.
 fn run_loop(
     tracks: &mut [Track],
     control: &mpsc::Receiver<Control>,
     on_level: &mut impl FnMut(LevelEvent),
-) -> Result<(), RecorderError> {
+) -> Result<Vec<Gap>, RecorderError> {
     let mut paused = false;
+    let written = |tracks: &[Track]| tracks.first().map_or(0.0, Track::seconds);
+    let mut detector = GapDetector::new(SystemTime::now(), written(tracks));
+    let mut gaps = Vec::new();
     loop {
         match control.recv_timeout(TICK) {
             Ok(Control::Pause) => paused = true,
@@ -303,11 +370,18 @@ fn run_loop(
                     t.set_muted(muted);
                 }
             }
-            Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+            Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(gaps),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         for t in tracks.iter_mut() {
             on_level(t.tick(paused)?);
+        }
+        if let Some(gap) = detector.tick(SystemTime::now(), written(tracks), paused) {
+            eprintln!(
+                "recording: no audio for {} ms at {} ms (the computer slept?)",
+                gap.missing_ms, gap.at_ms
+            );
+            gaps.push(gap);
         }
     }
 }
@@ -325,6 +399,36 @@ mod tests {
             kind,
             is_default: false,
         }
+    }
+
+    #[test]
+    fn gap_detector_reports_a_suspend_once_and_ignores_jitter_and_pauses() {
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let at = |s: f64| t0 + Duration::from_secs_f64(s);
+        let mut d = GapDetector::new(at(0.0), 0.0);
+        // Normal ticks, with buffering jitter: audio arrives a bit late or early.
+        assert_eq!(d.tick(at(0.05), 0.0, false), None);
+        assert_eq!(d.tick(at(0.10), 0.12, false), None);
+        assert_eq!(
+            d.tick(at(1.5), 1.2, false),
+            None,
+            "a slow tick that still got its audio"
+        );
+        // Suspended for 7 minutes at 1.2 s: 420.05 s pass with only 0.05 s of audio.
+        let gap = d.tick(at(421.55), 1.25, false).expect("gap");
+        assert_eq!(
+            gap,
+            Gap {
+                at_ms: 1200,
+                missing_ms: 420_000
+            }
+        );
+        assert_eq!(d.tick(at(421.60), 1.30, false), None, "reported once");
+        // Paused for 10 s: nothing written on purpose.
+        assert_eq!(d.tick(at(431.6), 1.30, true), None);
+        assert_eq!(d.tick(at(431.65), 1.35, false), None);
+        // Clock set backwards (NTP): never a gap.
+        assert_eq!(d.tick(at(100.0), 1.40, false), None);
     }
 
     #[test]
@@ -532,7 +636,13 @@ mod tests {
         std::thread::sleep(Duration::from_secs(2));
         rec.resume();
         std::thread::sleep(half);
-        let summaries = rec.stop().unwrap();
+        let stopped = rec.stop().unwrap();
+        assert!(
+            stopped.gaps.is_empty(),
+            "a pause is not a gap: {:?}",
+            stopped.gaps
+        );
+        let summaries = stopped.tracks;
         let wall = t0.elapsed().as_secs_f64();
         let events = events.lock().unwrap();
         for s in &summaries {

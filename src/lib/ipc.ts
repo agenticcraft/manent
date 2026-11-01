@@ -56,6 +56,13 @@ export interface Caption {
  * A transcript segment: a live caption (no label) or a speaker block from the rolling or
  * final pass (Rust: commands::TranscriptSegment).
  */
+/** Audio missing from a recording: capture froze while the computer slept (Rust: audio::Gap). */
+export interface Gap {
+  /** Position in the recording where the audio stops. */
+  at_ms: number;
+  missing_ms: number;
+}
+
 export interface TranscriptSegment {
   meeting_id: number;
   track_id: number;
@@ -263,6 +270,7 @@ export interface Commands {
   live_transcript: { args: { meetingId: number }; result: TranscriptSegment[] };
   get_me_name: { args: NoArgs; result: string };
   meeting_voices: { args: { meetingId: number }; result: VoiceView[] };
+  meeting_gaps: { args: { meetingId: number }; result: Gap[] };
   name_speaker: { args: { meetingId: number; label: string; name: string }; result: null };
   confirm_suggestion: { args: { meetingId: number; label: string }; result: null };
   merge_labels: { args: { meetingId: number; from: string; into: string }; result: null };

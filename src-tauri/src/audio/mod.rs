@@ -28,6 +28,6 @@ pub use capture::list_sources;
 pub use import::import_to_flac;
 pub use mixdown::{decode_mono, mixdown};
 pub use monitor::Monitor;
-pub use recorder::{Feed, Recording, TrackSummary, track_file_names};
+pub use recorder::{Feed, Gap, Recording, Stopped, TrackSummary, track_file_names};
 pub use sources::{SourceInfo, SourceKind};
 pub use waveform::waveform;

@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::audio::{self, Monitor, Recording, SourceInfo, SourceKind, TrackSummary};
+use crate::audio::{self, Gap, Monitor, Recording, SourceInfo, SourceKind, TrackSummary};
 use crate::db::Pass;
 use crate::db::{Db, Meeting, NewSegment, NewTrack, Person, Speaker};
 use crate::engine::transcript::Word;
@@ -17,6 +17,7 @@ use crate::live::{self, Caption, SharedHistory, TrackRef};
 use crate::media_server::{MIX_FILE, MediaServer};
 use crate::passes::{self, Labelled};
 use crate::paths::AppPaths;
+use crate::power::SleepBlock;
 use crate::rolling::{self, LabelVoice, PassResult, PassTrack, Rolling};
 use crate::speakers;
 
@@ -59,6 +60,8 @@ struct ActiveRecording {
     /// Live transcription: caption workers (VRT-16) and rolling passes (VRT-17).
     workers: Workers,
     rolling: Option<Rolling>,
+    /// Keeps the computer from idle sleep until the recording stops (VRT-36).
+    _awake: SleepBlock,
 }
 
 /// The caption workers of a recording and the track audio they keep for the passes.
@@ -420,6 +423,11 @@ pub async fn start_recording(
             interval,
         );
     }
+    let awake = SleepBlock::acquire("Recording a meeting");
+    eprintln!(
+        "recording {meeting_id}: keeping the computer awake: {}",
+        if awake.is_held() { "yes" } else { "no" }
+    );
     *current = Some(ActiveRecording {
         recording,
         meeting_id,
@@ -429,6 +437,7 @@ pub async fn start_recording(
         captions,
         workers,
         rolling: passes,
+        _awake: awake,
     });
     Ok(RecordingStarted {
         meeting_id,
@@ -496,9 +505,14 @@ pub async fn stop_recording(
         rolling,
         ..
     } = state.0.lock().await.take().ok_or("no recording")?;
-    let tracks = tauri::async_runtime::spawn_blocking(move || recording.stop())
+    let audio::Stopped { tracks, gaps } =
+        tauri::async_runtime::spawn_blocking(move || recording.stop())
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+    let gaps: Vec<(i64, i64)> = gaps.iter().map(|g| (g.at_ms, g.missing_ms)).collect();
+    db.add_gaps(meeting_id, &gaps)
         .await
-        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     // Live transcription winds down: the caption workers finish their last chunk, then the
     // rolling passes stop, so nothing writes captions after the final pass replaced them.
@@ -942,6 +956,18 @@ pub struct VoiceView {
     pub distance: Option<f64>,
     pub clean_seconds: f64,
     pub confirmed: bool,
+}
+
+/// Where a meeting's recording lost audio while the computer slept (VRT-36).
+#[tauri::command]
+pub async fn meeting_gaps(db: State<'_, Db>, meeting_id: i64) -> Result<Vec<Gap>, String> {
+    Ok(db
+        .list_gaps(meeting_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|(at_ms, missing_ms)| Gap { at_ms, missing_ms })
+        .collect())
 }
 
 #[tauri::command]

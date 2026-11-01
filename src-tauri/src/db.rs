@@ -312,6 +312,31 @@ impl Db {
         Ok(())
     }
 
+    /// Store where a recording lost audio while the computer slept (VRT-36).
+    pub async fn add_gaps(&self, meeting_id: i64, gaps: &[(i64, i64)]) -> Result<()> {
+        for (at_ms, missing_ms) in gaps {
+            sqlx::query(
+                "INSERT INTO meeting_gaps (meeting_id, at_ms, missing_ms) VALUES (?, ?, ?)",
+            )
+            .bind(meeting_id)
+            .bind(at_ms)
+            .bind(missing_ms)
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// A meeting's gaps as (at_ms, missing_ms), in order.
+    pub async fn list_gaps(&self, meeting_id: i64) -> Result<Vec<(i64, i64)>> {
+        Ok(sqlx::query_as(
+            "SELECT at_ms, missing_ms FROM meeting_gaps WHERE meeting_id = ? ORDER BY at_ms",
+        )
+        .bind(meeting_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn list_tracks(&self, meeting_id: i64) -> Result<Vec<Track>> {
         Ok(
             sqlx::query_as("SELECT * FROM tracks WHERE meeting_id = ? ORDER BY id")
@@ -772,6 +797,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gaps_are_stored_in_order_and_go_with_the_meeting() {
+        let db = db().await;
+        let m = db.create_meeting("Long", 1_000, "/m/long").await.unwrap();
+        db.add_gaps(m, &[(900_000, 60_000), (120_000, 420_000)])
+            .await
+            .unwrap();
+        assert_eq!(
+            db.list_gaps(m).await.unwrap(),
+            vec![(120_000, 420_000), (900_000, 60_000)]
+        );
+        db.delete_meeting(m).await.unwrap();
+        assert!(db.list_gaps(m).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn schema_has_the_doc_2_tables() {
         let db = db().await;
         let tables: Vec<(String,)> =
@@ -787,6 +827,7 @@ mod tests {
             "speakers",
             "voice_samples",
             "meeting_voices",
+            "meeting_gaps",
             "settings",
             "segments_fts",
         ] {
@@ -1180,6 +1221,6 @@ mod tests {
             .fetch_one(&db.pool)
             .await
             .unwrap();
-        assert_eq!(migrations.0, 2, "each migration applied once");
+        assert_eq!(migrations.0, 3, "each migration applied once");
     }
 }
