@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-10-31T20:56:00Z'
+updated_date: '2026-10-31T21:15:00Z'
 ---
 ## 1. Technical foundation
 
@@ -90,7 +90,8 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
   - `meeting_voices(meeting_id → meetings, label, speaker_id → speakers, suggested_id → speakers, distance, embedding, encoder_id, clean_seconds, confirmed)`: a meeting's speaker labels and who they are (§1.4, migration 0002).
   - `settings(key, value JSON)`.
 - Deleting a meeting cascades to its tracks and segments; deleting a person deletes their voice samples (segments stay, unnamed).
-- **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën".
+- **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën". Matches come back with a snippet whose matched words are wrapped in U+0001/U+0002 (transcripts can contain brackets); the Library shows them under "In transcripts" and opens the meeting at the match (VRT-20).
+- **Waveform:** `meeting_waveform` computes 600 loudness bars (RMS per bin, loudest track, scaled to the 98th percentile) from the FLAC tracks and caches them as `waveform.json` in the meeting folder once the meeting is done.
 - The engine lives in `<app data>/engine/` (libparakeet, libgomp, `engine.json` naming the image manifest) and the model in `<app data>/models/` (the bundle and its NOTICE). Interrupted downloads stay as `*.part` and resume (VRT-14).
 - Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2), or `import.flac` for an imported file, and `mix.opus`.
 - **Playback mixdown (VRT-10):** on Stop the tracks are mixed into `mix.opus`: mono, 48 kHz, Opus at 32 kbps (~14 MB per hour), streamed (never the whole meeting in memory), tracks at other sample rates resampled. Ogg pages end every second so players can seek. libopus is built statically from source by the `opus` crate (needs cmake, no system library).

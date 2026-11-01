@@ -100,7 +100,7 @@ pub struct SearchHit {
     pub meeting_id: i64,
     pub segment_id: i64,
     pub start_ms: i64,
-    /// Matching words wrapped in `[` `]`.
+    /// Matching words wrapped in U+0001 and U+0002 (text never contains them; brackets can).
     pub snippet: String,
 }
 
@@ -387,7 +387,7 @@ impl Db {
         };
         Ok(sqlx::query_as(
             "SELECT s.meeting_id, s.id AS segment_id, s.start_ms,
-                    snippet(segments_fts, 0, '[', ']', '…', 12) AS snippet
+                    snippet(segments_fts, 0, char(1), char(2), '…', 12) AS snippet
              FROM segments_fts JOIN segments s ON s.id = segments_fts.rowid
              WHERE segments_fts MATCH ?
              ORDER BY rank LIMIT ?",
@@ -1017,7 +1017,11 @@ mod tests {
         let hits = db.search("ideeen", 10).await.unwrap();
         assert_eq!(hits.len(), 1, "diacritics ignored");
         assert_eq!(hits[0].meeting_id, m1);
-        assert!(hits[0].snippet.contains("[ideeën]"), "{}", hits[0].snippet);
+        assert!(
+            hits[0].snippet.contains("\u{1}ideeën\u{2}"),
+            "{}",
+            hits[0].snippet
+        );
         assert_eq!(
             db.search("BUDG", 10).await.unwrap()[0].meeting_id,
             m2,

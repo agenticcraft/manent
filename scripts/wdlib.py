@@ -43,12 +43,12 @@ class Session:
             args or {},
         )
 
-    def wait_for(self, script, timeout=15.0):
-        """Poll a JS expression until it returns something truthy."""
+    def wait_for(self, script, timeout=15.0, *args):
+        """Poll a JS expression (with optional arguments) until it returns something truthy."""
         end = time.time() + timeout
         while time.time() < end:
             try:
-                v = self.js(script)
+                v = self.js(script, *args)
                 if v:
                     return v
             except RuntimeError:

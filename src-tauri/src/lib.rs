@@ -87,6 +87,8 @@ pub fn run() {
             commands::rename_person,
             commands::merge_people,
             commands::delete_person,
+            commands::meeting_waveform,
+            commands::search_transcripts,
             commands::import_audio,
             commands::retranscribe,
             commands::list_jobs,

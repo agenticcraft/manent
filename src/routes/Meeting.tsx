@@ -1,6 +1,6 @@
 import { ArrowLeft, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { AudioPlayer } from "@/components/AudioPlayer";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AudioPlayer, type PlayerHandle } from "@/components/AudioPlayer";
 import { TranscriptBlocks } from "@/components/TranscriptBlocks";
 import { Button } from "@/components/ui/button";
 import { formatDateTime, formatDuration } from "@/lib/format";
@@ -11,12 +11,38 @@ import { sorted, useSpeakers } from "@/lib/transcript";
  * Meeting detail (doc-3 screen 3): playback and the transcript with named speakers, and
  * "Re-transcribe" (VRT-19). Click-to-seek, search and the waveform come with VRT-20.
  */
-export function Meeting({ id, onBack }: { id: number; onBack: () => void }) {
+export function Meeting({
+  id,
+  focusMs,
+  onBack,
+}: {
+  id: number;
+  /** Open at this moment (a search match): scroll there and cue the player. */
+  focusMs?: number;
+  onBack: () => void;
+}) {
   const [meeting, setMeeting] = useState<MeetingDetail | null | undefined>(undefined);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [job, setJob] = useState<JobView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { voices, meName, renameMe } = useSpeakers(id, setError);
+  const player = useRef<PlayerHandle>(null);
+  const [currentMs, setCurrentMs] = useState<number | undefined>(focusMs);
+  const [waveform, setWaveform] = useState<number[]>([]);
+
+  useEffect(() => {
+    call("meeting_waveform", { id }).then(setWaveform, () => {});
+  }, [id]);
+
+  // A search match: cue the player there once it exists (it mounts with the meeting).
+  useEffect(() => {
+    if (focusMs !== undefined && meeting?.mix_url) player.current?.seek(focusMs);
+  }, [focusMs, meeting?.mix_url]);
+
+  const seek = (ms: number) => {
+    player.current?.seek(ms, true);
+    setCurrentMs(ms);
+  };
 
   const load = useCallback(() => {
     call("get_meeting", { id }).then(setMeeting, (e: unknown) => setError(String(e)));
@@ -94,13 +120,6 @@ export function Meeting({ id, onBack }: { id: number; onBack: () => void }) {
               <RefreshCw /> Re-transcribe
             </Button>
           </header>
-          {meeting.mix_url ? (
-            <AudioPlayer src={meeting.mix_url} fallbackDurationMs={meeting.duration_ms} />
-          ) : (
-            <p className="text-sm text-muted-foreground" data-testid="no-mix">
-              No playback file for this meeting.
-            </p>
-          )}
           {job && (
             <div className="flex flex-col gap-1.5" data-testid="meeting-job" data-stage={job.stage}>
               <p
@@ -134,6 +153,9 @@ export function Meeting({ id, onBack }: { id: number; onBack: () => void }) {
                 voices={voices}
                 meName={meName}
                 onRenameMe={renameMe}
+                onSeek={meeting.mix_url ? seek : undefined}
+                currentMs={currentMs}
+                focusMs={focusMs}
               />
             </section>
           ) : (
@@ -145,6 +167,23 @@ export function Meeting({ id, onBack }: { id: number; onBack: () => void }) {
                 No transcript yet. Use Re-transcribe once the transcription engine is downloaded.
               </section>
             )
+          )}
+          {meeting.mix_url ? (
+            // The player stays at the bottom of the screen while the transcript scrolls (doc-3).
+            // -bottom-8 + pb-12: it also covers the screen's 2 rem bottom padding.
+            <div className="sticky -bottom-8 z-10 -mx-1 bg-background px-1 pt-2 pb-12">
+              <AudioPlayer
+                ref={player}
+                src={meeting.mix_url}
+                fallbackDurationMs={meeting.duration_ms}
+                waveform={waveform}
+                onTime={setCurrentMs}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground" data-testid="no-mix">
+              No playback file for this meeting.
+            </p>
           )}
         </>
       )}

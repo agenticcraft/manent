@@ -12,6 +12,7 @@ mod recorder;
 pub(crate) mod resample;
 mod ring;
 mod sources;
+mod waveform;
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
@@ -29,3 +30,4 @@ pub use mixdown::{decode_mono, mixdown};
 pub use monitor::Monitor;
 pub use recorder::{Feed, Recording, TrackSummary, track_file_names};
 pub use sources::{SourceInfo, SourceKind};
+pub use waveform::waveform;

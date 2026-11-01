@@ -22,6 +22,12 @@ export default function App() {
   const [page, setPage] = useState<Page | "live">("library");
   const [session, setSession] = useState<RecordingStarted | null>(null);
   const [openMeeting, setOpenMeeting] = useState<number | null>(null);
+  /** Where to open the meeting (a search match), ms. */
+  const [focusMs, setFocusMs] = useState<number | undefined>(undefined);
+  const showMeeting = (id: number, atMs?: number) => {
+    setOpenMeeting(id);
+    setFocusMs(atMs);
+  };
   useEffect(followSystemTheme, []);
   const [dragging, setDragging] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
@@ -76,18 +82,21 @@ export default function App() {
       />
     );
   } else if (page === "library" && openMeeting !== null) {
-    content = <Meeting id={openMeeting} onBack={() => setOpenMeeting(null)} />;
+    content = (
+      <Meeting
+        key={`${openMeeting}-${focusMs}`}
+        id={openMeeting}
+        focusMs={focusMs}
+        onBack={() => setOpenMeeting(null)}
+      />
+    );
   } else if (page === "speakers") {
     content = <Speakers />;
   } else if (page === "settings") {
     content = <Settings />;
   } else {
     content = (
-      <Library
-        onNewRecording={startRecording}
-        onOpenMeeting={setOpenMeeting}
-        recording={!!session}
-      />
+      <Library onNewRecording={startRecording} onOpenMeeting={showMeeting} recording={!!session} />
     );
   }
 

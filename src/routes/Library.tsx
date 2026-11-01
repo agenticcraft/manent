@@ -7,7 +7,8 @@ import { MeetingRow } from "@/components/MeetingRow";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { call, on, type JobView, type MeetingSummary } from "@/lib/ipc";
+import { formatDuration } from "@/lib/format";
+import { call, on, type JobView, type MeetingSummary, type SearchHit } from "@/lib/ipc";
 
 /** What "Import audio" offers (decision-3: what symphonia reads). */
 const IMPORT_EXTENSIONS = [
@@ -31,7 +32,8 @@ export function Library({
   recording,
 }: {
   onNewRecording: () => Promise<void>;
-  onOpenMeeting: (id: number) => void;
+  /** Open a meeting, optionally at a moment (ms) of its transcript. */
+  onOpenMeeting: (id: number, atMs?: number) => void;
   /** A recording is running: starting another one is not possible. */
   recording: boolean;
 }) {
@@ -41,6 +43,17 @@ export function Library({
   const [starting, setStarting] = useState(false);
 
   const [jobs, setJobs] = useState<JobView[]>([]);
+  const [hits, setHits] = useState<SearchHit[]>([]);
+
+  // Transcript search (VRT-20), a moment after typing stops.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    const timer = window.setTimeout(() => {
+      call("search_transcripts", { query: q }).then(setHits, (e: unknown) => setError(String(e)));
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   const load = useCallback(() => {
     call("list_meetings").then(setMeetings, (e: unknown) => setError(String(e)));
@@ -72,6 +85,8 @@ export function Library({
       setError(String(e));
     }
   };
+
+  const shownHits = query.trim().length >= 2 ? hits : [];
 
   const visible = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
@@ -141,19 +156,23 @@ export function Library({
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search meetings"
-              aria-label="Search meetings by title"
+              placeholder="Search meetings and transcripts"
+              aria-label="Search meeting titles and transcripts"
               className="pl-8"
               data-testid="meeting-search"
             />
           </div>
-          {visible.length > 0 ? (
+          {visible.length > 0 && (
             <ul className="divide-y divide-border" aria-label="Meetings">
               {visible.map((m) => (
                 <MeetingRow key={m.id} meeting={m} onOpen={onOpenMeeting} onDelete={remove} />
               ))}
             </ul>
-          ) : (
+          )}
+          {shownHits.length > 0 && (
+            <TranscriptHits hits={shownHits} meetings={meetings} onOpen={onOpenMeeting} />
+          )}
+          {visible.length === 0 && shownHits.length === 0 && (
             <p className="py-12 text-center text-sm text-muted-foreground" data-testid="no-match">
               No meetings match “{query.trim()}”.
             </p>
@@ -161,5 +180,90 @@ export function Library({
         </div>
       )}
     </>
+  );
+}
+
+const MATCH_START = String.fromCharCode(1);
+const MATCH_END = String.fromCharCode(2);
+
+/** Snippet text with the matched words (wrapped in U+0001/U+0002) highlighted. */
+function Snippet({ text }: { text: string }) {
+  const parts: { text: string; match: boolean }[] = [];
+  let rest = text;
+  while (rest.length > 0) {
+    const start = rest.indexOf(MATCH_START);
+    const end = start >= 0 ? rest.indexOf(MATCH_END, start) : -1;
+    if (start < 0 || end < 0) {
+      parts.push({ text: rest, match: false });
+      break;
+    }
+    if (start > 0) parts.push({ text: rest.slice(0, start), match: false });
+    parts.push({ text: rest.slice(start + 1, end), match: true });
+    rest = rest.slice(end + 1);
+  }
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.match ? (
+          <mark key={i} className="rounded-sm bg-brand/20 px-0.5 text-foreground">
+            {p.text}
+          </mark>
+        ) : (
+          <span key={i}>{p.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+/** Transcript matches grouped per meeting; a match opens the meeting at that moment. */
+function TranscriptHits({
+  hits,
+  meetings,
+  onOpen,
+}: {
+  hits: SearchHit[];
+  meetings: MeetingSummary[];
+  onOpen: (id: number, atMs?: number) => void;
+}) {
+  const groups = new Map<number, SearchHit[]>();
+  for (const h of hits) groups.set(h.meeting_id, [...(groups.get(h.meeting_id) ?? []), h]);
+  return (
+    <section className="mt-6" aria-label="In transcripts" data-testid="transcript-hits">
+      <h2 className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        In transcripts
+      </h2>
+      <ul className="flex flex-col gap-3">
+        {[...groups].map(([meetingId, list]) => {
+          const m = meetings.find((x) => x.id === meetingId);
+          return (
+            <li key={meetingId} className="rounded-lg border px-3 py-2">
+              <p className="text-sm font-medium">{m?.title || "Untitled meeting"}</p>
+              <ul className="mt-1 flex flex-col">
+                {list.slice(0, 3).map((h) => (
+                  <li key={h.segment_id}>
+                    <button
+                      type="button"
+                      className="flex w-full gap-3 rounded-md px-1 py-1 text-left text-sm hover:bg-muted"
+                      onClick={() => onOpen(meetingId, h.start_ms)}
+                      data-testid="transcript-hit"
+                      data-meeting-id={meetingId}
+                      data-start-ms={h.start_ms}
+                    >
+                      <span className="w-10 shrink-0 text-xs leading-5 text-muted-foreground tabular-nums">
+                        {formatDuration(h.start_ms)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        <Snippet text={h.snippet} />
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

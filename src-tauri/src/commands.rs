@@ -1156,6 +1156,61 @@ pub fn dismiss_job(jobs: State<'_, Jobs>, id: u64) {
     jobs.dismiss(id);
 }
 
+/// Bars of the meeting's waveform for the player (VRT-20); computed once from the tracks and
+/// kept in the meeting folder.
+#[tauri::command]
+pub async fn meeting_waveform(
+    db: State<'_, Db>,
+    paths: State<'_, AppPaths>,
+    id: i64,
+) -> Result<Vec<f32>, String> {
+    const BINS: usize = 600;
+    let meeting = db
+        .get_meeting(id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("no such meeting")?;
+    let dir = paths
+        .contained_meeting_dir(std::path::Path::new(&meeting.dir))
+        .ok_or("the meeting folder is missing")?;
+    let cache = dir.join("waveform.json");
+    if let Some(bars) = std::fs::read(&cache)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Vec<f32>>(&b).ok())
+        .filter(|b| b.len() == BINS)
+    {
+        return Ok(bars);
+    }
+    let files: Vec<std::path::PathBuf> = db
+        .list_tracks(id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|t| std::path::PathBuf::from(t.path))
+        .filter(|p| p.is_file())
+        .collect();
+    let bars = tauri::async_runtime::spawn_blocking(move || {
+        let refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
+        audio::waveform(&refs, BINS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    if meeting.status == "done" {
+        let _ = std::fs::write(&cache, serde_json::to_vec(&bars).unwrap_or_default());
+    }
+    Ok(bars)
+}
+
+/// Full-text search over every transcript (VRT-20); diacritics and case are ignored.
+#[tauri::command]
+pub async fn search_transcripts(
+    db: State<'_, Db>,
+    query: String,
+) -> Result<Vec<crate::db::SearchHit>, String> {
+    db.search(&query, 50).await.map_err(|e| e.to_string())
+}
+
 /// Engine and model state (Settings > Transcription, VRT-14).
 #[tauri::command]
 pub fn engine_status(engine: State<'_, EngineManager>) -> EngineStatus {

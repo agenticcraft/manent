@@ -88,6 +88,15 @@ export interface VoiceView {
   confirmed: boolean;
 }
 
+/** A transcript match (Rust: db::SearchHit). */
+export interface SearchHit {
+  meeting_id: number;
+  segment_id: number;
+  start_ms: number;
+  /** The matching words are wrapped in U+0001 and U+0002. */
+  snippet: string;
+}
+
 /** A background transcription job (Rust: jobs::JobView). */
 export interface JobView {
   id: number;
@@ -247,6 +256,8 @@ export interface Commands {
   merge_labels: { args: { meetingId: number; from: string; into: string }; result: null };
   list_people: { args: NoArgs; result: Person[] };
   import_audio: { args: { paths: string[] }; result: number[] };
+  meeting_waveform: { args: { id: number }; result: number[] };
+  search_transcripts: { args: { query: string }; result: SearchHit[] };
   retranscribe: { args: { meetingId: number }; result: number };
   list_jobs: { args: NoArgs; result: JobView[] };
   dismiss_job: { args: { id: number }; result: null };
