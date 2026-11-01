@@ -320,6 +320,10 @@ export interface Events {
   "speakers:changed": { meeting_id: number | null };
   /** The job list changed (VRT-19). */
   "jobs:changed": JobView[];
+  /** A recording started or stopped, from the window or the tray (VRT-22). */
+  "recording:started": RecordingStarted;
+  /** The meeting id of the recording that stopped. */
+  "recording:stopped": number;
 }
 
 type ArgsOf<K extends keyof Commands> = Commands[K]["args"] extends NoArgs

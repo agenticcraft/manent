@@ -20,6 +20,7 @@ mod speakers;
 #[cfg(test)]
 mod test_util;
 mod transcript_md;
+mod tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -63,11 +64,29 @@ pub fn run() {
             // Meetings from before VRT-37 get their transcript.md.
             transcript_md::spawn_backfill(db.clone());
             app.manage(db);
+            // Tray icon (VRT-22); the app works without one (e.g. a desktop without a tray).
+            if let Err(e) = tray::build(app.handle()) {
+                eprintln!("tray icon: {e}");
+            }
             app.manage(media);
             app.manage(engine);
             app.manage(jobs);
             app.manage(paths);
             Ok(())
+        })
+        // Closing the window during a recording hides it: the recording goes on, and the
+        // tray brings the window back or stops it (VRT-22).
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let recording = window
+                    .app_handle()
+                    .try_state::<commands::RecorderState>()
+                    .is_some_and(|s| s.is_recording());
+                if recording && window.app_handle().tray_by_id("main").is_some() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .manage(commands::RecorderState::default())
         .manage(commands::MonitorState::default())

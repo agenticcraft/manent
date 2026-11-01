@@ -71,6 +71,18 @@ type Workers = Arc<Mutex<Vec<(PassTrack, std::thread::JoinHandle<()>)>>>;
 #[derive(Default)]
 pub struct RecorderState(tokio::sync::Mutex<Option<ActiveRecording>>);
 
+impl RecorderState {
+    /// Whether a recording runs, without waiting (false while a start or stop is under way).
+    pub fn is_recording(&self) -> bool {
+        self.0.try_lock().is_ok_and(|r| r.is_some())
+    }
+
+    /// Whether a recording runs, after a start or stop under way has finished.
+    pub async fn is_recording_now(&self) -> bool {
+        self.0.lock().await.is_some()
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RecordingStarted {
     pub meeting_id: i64,
@@ -439,12 +451,16 @@ pub async fn start_recording(
         rolling: passes,
         _awake: awake,
     });
-    Ok(RecordingStarted {
+    let started = RecordingStarted {
         meeting_id,
         started_at,
         sources,
         captions,
-    })
+    };
+    // The tray and the window follow, whoever started it (VRT-22).
+    crate::tray::set_recording(&app, true);
+    let _ = app.emit("recording:started", &started);
+    Ok(started)
 }
 
 /// The recording in progress (e.g. after the UI reloads), if any.
@@ -493,6 +509,7 @@ pub async fn set_source_muted(
 /// Stop the recording, close the FLAC files, store the tracks and finish the meeting.
 #[tauri::command]
 pub async fn stop_recording(
+    app: AppHandle,
     state: State<'_, RecorderState>,
     db: State<'_, Db>,
     jobs: State<'_, Jobs>,
@@ -582,6 +599,8 @@ pub async fn stop_recording(
             .unwrap_or_else(|| "Untitled meeting".into());
         jobs.transcribe(meeting_id, title);
     }
+    crate::tray::set_recording(&app, false);
+    let _ = app.emit("recording:stopped", meeting_id);
     Ok(RecordingStopped {
         meeting_id,
         tracks,

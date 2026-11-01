@@ -11,6 +11,19 @@ import { cn } from "@/lib/utils";
 export function Live({ session, onStopped }: { session: RecordingStarted; onStopped: () => void }) {
   const [title, setTitle] = useState("");
   const savedTitle = useRef("");
+  const titleNow = useRef("");
+  useEffect(() => {
+    titleNow.current = title;
+  }, [title]);
+
+  // Stopped from the tray while a title was being typed: keep it (the meeting still exists).
+  useEffect(
+    () => () => {
+      const t = titleNow.current.trim();
+      if (t !== savedTitle.current) call("rename_meeting", { id: session.meeting_id, title: t });
+    },
+    [session.meeting_id],
+  );
   const [paused, setPaused] = useState(false);
   const [pausedMs, setPausedMs] = useState(0);
   const [pausedAt, setPausedAt] = useState<number | null>(null);

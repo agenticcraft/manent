@@ -2,7 +2,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { FileAudio, Library as LibraryIcon, Settings as SettingsIcon, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Sidebar, type NavItem } from "@/components/Sidebar";
-import { call, type RecordingStarted } from "@/lib/ipc";
+import { call, on, type RecordingStarted } from "@/lib/ipc";
 import { followSystemTheme } from "@/lib/theme";
 import { Library } from "@/routes/Library";
 import { Live } from "@/routes/Live";
@@ -62,6 +62,22 @@ export default function App() {
         setPage("live");
       }
     });
+  }, []);
+
+  // The tray starts and stops recordings too: follow them (VRT-22).
+  useEffect(() => {
+    const offStarted = on("recording:started", (s) => {
+      setSession(s);
+      setPage("live");
+    });
+    const offStopped = on("recording:stopped", () => {
+      setSession(null);
+      setPage((p) => (p === "live" ? "library" : p));
+    });
+    return () => {
+      offStarted.then((f) => f());
+      offStopped.then((f) => f());
+    };
   }, []);
 
   const startRecording = async () => {
