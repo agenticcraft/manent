@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-11-01T10:37:00Z'
+updated_date: '2026-11-01T16:49:00Z'
 ---
 ## 1. Technical foundation
 
@@ -98,6 +98,7 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
 - **Moving the meetings folder (VRT-27):** Settings > Storage moves every meeting folder (rename, or copy and delete across file systems), then points `meetings.dir` and `tracks.path` to the new place; refused while recording or transcribing. The root is shared by every part of the app (`AppPaths`), so the media server and jobs use it at once.
 - **Keeping only the playback file (VRT-27):** with `storage.keep = mix`, a meeting's FLAC tracks are deleted after its final pass (the waveform is cached first; never without `mix.opus`). Re-transcribe then explains that the tracks are gone. Measured sizes: FLAC tracks of a recording ~400 MB per hour, `mix.opus` ~13 MB per hour.
 - Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2), or `import.flac` for an imported file, and `mix.opus`.
+- **`transcript.md` (VRT-37, decision-5):** each meeting folder also holds the transcript as Markdown with a YAML header (`transcript_md.rs`). The header has schema version, id, title, start (UTC), duration, the audio files present, pass, speakers and gaps; every value is written as JSON, which is valid YAML. The body has a block per speaker turn (`**Name** · m:ss` and its text on one line) and a `> No audio …` note where audio is missing. It holds names only, never voice embeddings. It is written atomically (temp file + rename) after every transcription job, and rewritten when a meeting is renamed or a speaker is named, merged or deleted, and when the user's own name changes. Meetings without one get it at startup. `parse` reads it back (round-trip tested) for the companion app and later re-import.
 - **Playback mixdown (VRT-10):** on Stop the tracks are mixed into `mix.opus`: mono, 48 kHz, Opus at 32 kbps (~14 MB per hour), streamed (never the whole meeting in memory), tracks at other sample rates resampled. Ogg pages end every second so players can seek. libopus is built statically from source by the `opus` crate (needs cmake, no system library).
 - **Playback transport:** the webview plays `mix.opus` from a local media server inside the app (`media_server.rs`): bound to 127.0.0.1 on a random port, a random 128-bit token in every URL, only `meetings/<id>/mix.opus` inside the meetings folder, HTTP Range support, one thread per request. Reasons: WebKitGTK can't play media from Tauri's custom protocols, and from `blob:` URLs it can't seek. The player uses `preload="auto"`; with `metadata` WebKitGTK never learns an Ogg file's duration.
 

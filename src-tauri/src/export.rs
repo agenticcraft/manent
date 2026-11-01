@@ -132,7 +132,7 @@ pub fn blocks(parts: &[Part]) -> Vec<Block> {
 }
 
 /// `h:mm:ss` (or `m:ss` under an hour).
-fn clock(ms: u32) -> String {
+pub(crate) fn clock(ms: u32) -> String {
     let s = ms / 1000;
     let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
     if h > 0 {
@@ -149,7 +149,7 @@ fn srt_time(ms: u32) -> String {
 }
 
 /// ISO 8601 UTC for a Unix ms time (no time zone library needed for UTC).
-fn iso_utc(ms: i64) -> String {
+pub(crate) fn iso_utc(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     // Civil date from days since 1970-01-01 (H. Hinnant's algorithm).

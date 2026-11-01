@@ -436,6 +436,10 @@ async fn transcribe(s: &Shared, id: u64, meeting_id: i64, base: f64) -> Result<(
     if keep.as_deref() == Some("mix") {
         drop_tracks(s, meeting_id).await;
     }
+    // transcript.md next to the audio (VRT-37), after the tracks it lists may have gone.
+    if let Err(e) = crate::transcript_md::write(&s.db, meeting_id).await {
+        eprintln!("transcript.md for meeting {meeting_id}: {e}");
+    }
     if let Some(app) = &s.app {
         let segments = blocks
             .into_iter()

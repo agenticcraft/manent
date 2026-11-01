@@ -19,6 +19,7 @@ mod rolling;
 mod speakers;
 #[cfg(test)]
 mod test_util;
+mod transcript_md;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -59,6 +60,8 @@ pub fn run() {
                     jobs.transcribe(m.id, name);
                 }
             }
+            // Meetings from before VRT-37 get their transcript.md.
+            transcript_md::spawn_backfill(db.clone());
             app.manage(db);
             app.manage(media);
             app.manage(engine);

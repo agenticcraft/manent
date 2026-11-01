@@ -594,7 +594,9 @@ pub async fn stop_recording(
 pub async fn rename_meeting(db: State<'_, Db>, id: i64, title: String) -> Result<(), String> {
     db.rename_meeting(id, title.trim())
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::transcript_md::spawn_write(db.inner().clone(), vec![id]);
+    Ok(())
 }
 
 /// A meeting as listed in the Library, with its named speakers.
@@ -736,7 +738,9 @@ pub async fn get_me_name(db: State<'_, Db>) -> Result<String, String> {
 pub async fn set_me_name(db: State<'_, Db>, name: String) -> Result<(), String> {
     db.set_setting(ME_NAME_SETTING, &name.trim())
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::transcript_md::spawn_write_all(db.inner().clone());
+    Ok(())
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -1024,6 +1028,7 @@ pub async fn name_speaker(
             meeting_id: Some(meeting_id),
         },
     );
+    crate::transcript_md::spawn_write(db.inner().clone(), vec![meeting_id]);
     Ok(())
 }
 
@@ -1051,6 +1056,7 @@ pub async fn confirm_suggestion(
             meeting_id: Some(meeting_id),
         },
     );
+    crate::transcript_md::spawn_write(db.inner().clone(), vec![meeting_id]);
     Ok(())
 }
 
@@ -1101,6 +1107,7 @@ pub async fn merge_labels(
             meeting_id: Some(meeting_id),
         },
     );
+    crate::transcript_md::spawn_write(db.inner().clone(), vec![meeting_id]);
     Ok(())
 }
 
@@ -1125,6 +1132,7 @@ pub async fn rename_person(
         .await
         .map_err(|e| e.to_string())?;
     let _ = app.emit("speakers:changed", SpeakersChanged { meeting_id: None });
+    crate::transcript_md::spawn_write_all(db.inner().clone());
     Ok(())
 }
 
@@ -1143,6 +1151,7 @@ pub async fn merge_people(
         .await
         .map_err(|e| e.to_string())?;
     let _ = app.emit("speakers:changed", SpeakersChanged { meeting_id: None });
+    crate::transcript_md::spawn_write_all(db.inner().clone());
     Ok(())
 }
 
@@ -1151,6 +1160,7 @@ pub async fn merge_people(
 pub async fn delete_person(app: AppHandle, db: State<'_, Db>, id: i64) -> Result<(), String> {
     db.delete_speaker(id).await.map_err(|e| e.to_string())?;
     let _ = app.emit("speakers:changed", SpeakersChanged { meeting_id: None });
+    crate::transcript_md::spawn_write_all(db.inner().clone());
     Ok(())
 }
 
@@ -1281,33 +1291,10 @@ pub async fn export_meeting(
     path: String,
     date_label: String,
 ) -> Result<(), String> {
-    let err = |e: crate::db::DbError| e.to_string();
     let format = crate::export::Format::parse(&format).ok_or("unknown export format")?;
-    let meeting = db
-        .get_meeting(id)
-        .await
-        .map_err(err)?
+    let (_, export, _) = crate::transcript_md::load(&db, id, date_label)
+        .await?
         .ok_or("no such meeting")?;
-    let tracks = db.list_tracks(id).await.map_err(err)?;
-    let segments = db.list_segments(id).await.map_err(err)?;
-    let people: HashMap<i64, String> = db
-        .list_speakers()
-        .await
-        .map_err(err)?
-        .into_iter()
-        .map(|p| (p.id, p.name))
-        .collect();
-    let me: Option<String> = db.get_setting(ME_NAME_SETTING).await.map_err(err)?;
-    let me = me
-        .filter(|n| !n.trim().is_empty())
-        .unwrap_or_else(|| "Me".into());
-    let export = crate::export::Export {
-        title: meeting.title,
-        date_label,
-        started_at: meeting.started_at,
-        duration_ms: meeting.duration_ms,
-        parts: crate::export::parts(&segments, &tracks, &people, &me),
-    };
     std::fs::write(&path, crate::export::render(&export, format))
         .map_err(|e| format!("can't write {path}: {e}"))
 }
