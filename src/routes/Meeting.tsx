@@ -1,6 +1,7 @@
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioPlayer, type PlayerHandle } from "@/components/AudioPlayer";
+import { ExportMenu } from "@/components/ExportMenu";
 import { TranscriptBlocks } from "@/components/TranscriptBlocks";
 import { Button } from "@/components/ui/button";
 import { formatDateTime, formatDuration } from "@/lib/format";
@@ -110,15 +111,24 @@ export function Meeting({
                 {formatDateTime(meeting.started_at)} · {formatDuration(meeting.duration_ms)}
               </p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={retranscribe}
-              disabled={busy || meeting.status === "recording"}
-              data-testid="retranscribe"
-            >
-              <RefreshCw /> Re-transcribe
-            </Button>
+            <div className="flex gap-2">
+              <ExportMenu
+                meetingId={id}
+                title={meeting.title}
+                dateLabel={formatDateTime(meeting.started_at)}
+                disabled={segments.length === 0}
+                onError={setError}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={retranscribe}
+                disabled={busy || meeting.status === "recording"}
+                data-testid="retranscribe"
+              >
+                <RefreshCw /> Re-transcribe
+              </Button>
+            </div>
           </header>
           {job && (
             <div className="flex flex-col gap-1.5" data-testid="meeting-job" data-stage={job.stage}>

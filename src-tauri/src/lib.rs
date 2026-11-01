@@ -8,6 +8,7 @@ mod commands;
 #[allow(dead_code)]
 mod db;
 mod engine;
+mod export;
 mod jobs;
 mod live;
 mod media_server;
@@ -88,6 +89,7 @@ pub fn run() {
             commands::merge_people,
             commands::delete_person,
             commands::meeting_waveform,
+            commands::export_meeting,
             commands::search_transcripts,
             commands::import_audio,
             commands::retranscribe,

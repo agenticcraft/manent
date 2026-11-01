@@ -3,12 +3,12 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-11-01T09:52:00Z'
+updated_date: '2026-11-01T10:10:00Z'
 ---
 ## 1. Technical foundation
 
 ### 1.1 App shell: Tauri 2 (Rust core with a TypeScript UI)
-- **Why Tauri:** one codebase covers Linux, macOS and Windows, and Tauri 2 also targets iOS and Android for the later mobile step. Installers are small: the Linux release binary is 8.8 MB and the deb/rpm 3.9 MB (VRT-29), against about 150 MB for Electron. Rust gives low-latency, safe audio threads.
+- **Why Tauri:** one codebase covers Linux, macOS and Windows, and Tauri 2 also targets iOS and Android, a candidate for the mobile companion app (decision-4; the platform is chosen in VRT-26.1). Installers are small: the Linux release binary is 8.8 MB and the deb/rpm 3.9 MB (VRT-29), against about 150 MB for Electron. Rust gives low-latency, safe audio threads.
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS and shadcn/ui.
 - **Backend (Rust):** audio capture, encoding, storage, and managing the transcription engine. It talks to the UI through Tauri commands, which carry requests, and events, which carry streams such as audio levels and transcript segments.
 
@@ -20,8 +20,8 @@ Each **source** is either a mic input or a system-output loopback, and each one 
 | Linux | `cpal` PipeWire host (feature `pipewire`) | `cpal` PipeWire host: an input stream on an output (sink) device sets `stream.capture.sink`, which is loopback |
 | Windows | `cpal` WASAPI | `cpal` WASAPI loopback: an input stream on an output device |
 | macOS | `cpal` CoreAudio | `cpal` CoreAudio loopback on macOS 14.6 and newer (an input stream on an output device; cpal creates a process tap plus an aggregate device). Needs the system-audio capture permission; verified in VRT-12 |
-| Android (later) | AudioRecord | `AudioPlaybackCapture` (MediaProjection), which only works for apps that allow capture |
-| iOS (later) | AVAudioEngine | Not possible because of OS limits, so mic only |
+| Android (companion, VRT-26) | AudioRecord | `AudioPlaybackCapture` (MediaProjection), which only works for apps that allow capture |
+| iOS (companion, VRT-26) | AVAudioEngine | Not possible because of OS limits, so mic only |
 
 Design:
 - A `trait AudioSource` (format, start, stop) implemented by `CpalSource`; platform details (which devices are virtual) live in `cfg` modules. Device enumeration returns a `SourceInfo {id, name, kind: Mic|Loopback, is_default}`.
@@ -66,7 +66,7 @@ How the app uses it:
 - **Jobs (VRT-19, `jobs.rs`):** the final pass, "Re-transcribe" and imports run as background jobs, one at a time (the engine never transcribes two whole meetings at once), with progress for the UI (`jobs:changed`; decoding by position, transcription estimated from the audio length). Jobs live in the app, so they survive navigation; a meeting left `processing` when the app quit is transcribed again at the next start.
 - **Imports:** a file (wav, mp3, m4a/mp4/aac/mov, flac, ogg/vorbis, mkv/webm; decision-3) is decoded by symphonia into the meeting's mono FLAC track `import.flac` at its own rate (one track, kind `loopback`, so every voice is diarized; there is no "Me"), mixed into `mix.opus`, and transcribed like a recording's final pass, so known people are recognised. Import via the Library button (native dialog) or by dropping files on the window. Without the engine installed an import is refused.
 - **Merging:** the app gives each word the speaker of the diarization segment it overlaps most (nearest segment when none overlaps). Diarization almost never assigns speech to the wrong person (0.1–0.3% on AMI, 6.6% in one meeting with a very quiet speaker); produced audio often yields extra tiny speaker slots (< 8 s of clean speech).
-- An `Engine` trait in Rust (`transcribe_chunk`, `transcribe_file`, `transcribe_words`, `speaker_profiles`) hides the helper process. Mobile, which can't run a helper process, can link the same C API in-process later.
+- An `Engine` trait in Rust (`transcribe_chunk`, `transcribe_file`, `transcribe_words`, `speaker_profiles`) hides the helper process. Phones don't transcribe: the companion app sends its recordings to a paired desktop (decision-4), so there is no mobile engine.
 - **Not available without another engine:** LLM summaries (VRT-24) would need a separate local LLM runtime.
 
 ### 1.4 Speaker identity and naming
@@ -92,6 +92,7 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
   - `settings(key, value JSON)`: `recording.sources` (Settings > Sources), `speaker.me_name`.
 - Deleting a meeting cascades to its tracks and segments; deleting a person deletes their voice samples (segments stay, unnamed).
 - **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën". Matches come back with a snippet whose matched words are wrapped in U+0001/U+0002 (transcripts can contain brackets); the Library shows them under "In transcripts" and opens the meeting at the match (VRT-20).
+- **Export (VRT-21, `export.rs`):** Markdown, plain text, SRT (cues of at most 7 s, split between words) and JSON (blocks with their words and times) from the stored segments, speakers named as in the app; written where the save dialog says. Snapshot tests in `src-tauri/tests/snapshots` (`UPDATE_SNAPSHOTS=1` to accept a change).
 - **Waveform:** `meeting_waveform` computes 600 loudness bars (RMS per bin, loudest track, scaled to the 98th percentile) from the FLAC tracks and caches them as `waveform.json` in the meeting folder once the meeting is done.
 - The engine lives in `<app data>/engine/` (libparakeet, libgomp, `engine.json` naming the image manifest) and the model in `<app data>/models/` (the bundle and its NOTICE). Interrupted downloads stay as `*.part` and resume (VRT-14).
 - Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2), or `import.flac` for an imported file, and `mix.opus`.

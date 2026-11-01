@@ -1202,6 +1202,47 @@ pub async fn meeting_waveform(
     Ok(bars)
 }
 
+/// Write a meeting's transcript to `path` as Markdown, TXT, SRT or JSON (VRT-21). The path
+/// comes from the save dialog; `date_label` is the meeting date as the UI shows it.
+#[tauri::command]
+pub async fn export_meeting(
+    db: State<'_, Db>,
+    id: i64,
+    format: String,
+    path: String,
+    date_label: String,
+) -> Result<(), String> {
+    let err = |e: crate::db::DbError| e.to_string();
+    let format = crate::export::Format::parse(&format).ok_or("unknown export format")?;
+    let meeting = db
+        .get_meeting(id)
+        .await
+        .map_err(err)?
+        .ok_or("no such meeting")?;
+    let tracks = db.list_tracks(id).await.map_err(err)?;
+    let segments = db.list_segments(id).await.map_err(err)?;
+    let people: HashMap<i64, String> = db
+        .list_speakers()
+        .await
+        .map_err(err)?
+        .into_iter()
+        .map(|p| (p.id, p.name))
+        .collect();
+    let me: Option<String> = db.get_setting(ME_NAME_SETTING).await.map_err(err)?;
+    let me = me
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "Me".into());
+    let export = crate::export::Export {
+        title: meeting.title,
+        date_label,
+        started_at: meeting.started_at,
+        duration_ms: meeting.duration_ms,
+        parts: crate::export::parts(&segments, &tracks, &people, &me),
+    };
+    std::fs::write(&path, crate::export::render(&export, format))
+        .map_err(|e| format!("can't write {path}: {e}"))
+}
+
 /// Full-text search over every transcript (VRT-20); diacritics and case are ignored.
 #[tauri::command]
 pub async fn search_transcripts(

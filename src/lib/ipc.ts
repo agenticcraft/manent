@@ -88,6 +88,9 @@ export interface VoiceView {
   confirmed: boolean;
 }
 
+/** Transcript export formats (Rust: export::Format). */
+export type ExportFormat = "md" | "txt" | "srt" | "json";
+
 /** A transcript match (Rust: db::SearchHit). */
 export interface SearchHit {
   meeting_id: number;
@@ -257,6 +260,10 @@ export interface Commands {
   list_people: { args: NoArgs; result: Person[] };
   import_audio: { args: { paths: string[] }; result: number[] };
   meeting_waveform: { args: { id: number }; result: number[] };
+  export_meeting: {
+    args: { id: number; format: ExportFormat; path: string; dateLabel: string };
+    result: null;
+  };
   search_transcripts: { args: { query: string }; result: SearchHit[] };
   retranscribe: { args: { meetingId: number }; result: number };
   list_jobs: { args: NoArgs; result: JobView[] };

@@ -1,0 +1,200 @@
+{
+  "blocks": [
+    {
+      "end_ms": 3400,
+      "speaker": "Anna",
+      "start_ms": 1200,
+      "text": "Goedemorgen allemaal. Shall we start?",
+      "words": [
+        {
+          "conf": 0.9,
+          "end_ms": 1800,
+          "start_ms": 1200,
+          "text": "Goedemorgen"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 2300,
+          "start_ms": 1800,
+          "text": "allemaal."
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 2900,
+          "start_ms": 2600,
+          "text": "Shall"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 3000,
+          "start_ms": 2900,
+          "text": "we"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 3400,
+          "start_ms": 3000,
+          "text": "start?"
+        }
+      ]
+    },
+    {
+      "end_ms": 5000,
+      "speaker": "Rob",
+      "start_ms": 4000,
+      "text": "Yes, let's go.",
+      "words": [
+        {
+          "conf": 0.9,
+          "end_ms": 4300,
+          "start_ms": 4000,
+          "text": "Yes,"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 4600,
+          "start_ms": 4300,
+          "text": "let's"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 5000,
+          "start_ms": 4600,
+          "text": "go."
+        }
+      ]
+    },
+    {
+      "end_ms": 19400,
+      "speaker": "Speaker 3",
+      "start_ms": 9000,
+      "text": "Ja, en dat is precies waarom we het budget voor volgend jaar opnieuw moeten bekijken.",
+      "words": [
+        {
+          "conf": 0.9,
+          "end_ms": 9600,
+          "start_ms": 9000,
+          "text": "Ja,"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 10300,
+          "start_ms": 9700,
+          "text": "en"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 11000,
+          "start_ms": 10400,
+          "text": "dat"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 11700,
+          "start_ms": 11100,
+          "text": "is"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 12400,
+          "start_ms": 11800,
+          "text": "precies"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 13100,
+          "start_ms": 12500,
+          "text": "waarom"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 13800,
+          "start_ms": 13200,
+          "text": "we"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 14500,
+          "start_ms": 13900,
+          "text": "het"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 15200,
+          "start_ms": 14600,
+          "text": "budget"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 15900,
+          "start_ms": 15300,
+          "text": "voor"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 16600,
+          "start_ms": 16000,
+          "text": "volgend"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 17300,
+          "start_ms": 16700,
+          "text": "jaar"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 18000,
+          "start_ms": 17400,
+          "text": "opnieuw"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 18700,
+          "start_ms": 18100,
+          "text": "moeten"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 19400,
+          "start_ms": 18800,
+          "text": "bekijken."
+        }
+      ]
+    },
+    {
+      "end_ms": 3601500,
+      "speaker": "Anna",
+      "start_ms": 3600000,
+      "text": "Eén vraag nog.",
+      "words": [
+        {
+          "conf": 0.9,
+          "end_ms": 3600400,
+          "start_ms": 3600000,
+          "text": "Eén"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 3601000,
+          "start_ms": 3600400,
+          "text": "vraag"
+        },
+        {
+          "conf": 0.9,
+          "end_ms": 3601500,
+          "start_ms": 3601000,
+          "text": "nog."
+        }
+      ]
+    }
+  ],
+  "duration_ms": 3725000,
+  "speakers": [
+    "Anna",
+    "Rob",
+    "Speaker 3"
+  ],
+  "started_at": "2026-10-30T13:59:00Z",
+  "title": "Kwartaaloverleg"
+}
