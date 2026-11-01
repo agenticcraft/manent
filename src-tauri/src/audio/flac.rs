@@ -13,7 +13,7 @@ use flacenc::error::Verify;
 use flacenc::source::{Context, Fill, FrameBuf};
 
 const BITS_PER_SAMPLE: usize = 16;
-const BLOCK_SIZE: usize = 4096;
+pub(crate) const BLOCK_SIZE: usize = 4096;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FlacError {
@@ -43,7 +43,14 @@ pub struct FlacWriter {
 impl FlacWriter {
     pub fn create(path: &Path, sample_rate: u32, channels: u16) -> Result<Self, FlacError> {
         let channels = channels as usize;
-        let header = Stream::new(sample_rate as usize, channels, BITS_PER_SAMPLE).map_err(enc)?;
+        let mut header =
+            Stream::new(sample_rate as usize, channels, BITS_PER_SAMPLE).map_err(enc)?;
+        // Valid block sizes in the placeholder header too, so a file cut off by a crash can
+        // still be read (VRT-41); the rest (total, frame sizes, MD5) stays "unknown".
+        header
+            .stream_info_mut()
+            .set_block_sizes(BLOCK_SIZE, BLOCK_SIZE)
+            .map_err(enc)?;
         let mut writer = Self {
             out: BufWriter::new(File::create(path)?),
             channels,
@@ -105,6 +112,13 @@ impl FlacWriter {
         Ok(total as u64)
     }
 
+    /// Tests: drop the file without flushing the write buffer or finishing the header, as a
+    /// killed process leaves it (VRT-41).
+    #[cfg(test)]
+    pub fn forget_unflushed(self) {
+        let (_file, _unwritten) = self.out.into_parts();
+    }
+
     fn encode_block(&mut self, start: usize, end: usize) -> Result<(), FlacError> {
         let mut fill = (&mut self.framebuf, &mut self.context);
         fill.fill_interleaved(&self.pending[start..end])
@@ -123,6 +137,9 @@ impl FlacWriter {
         self.min_frame = self.min_frame.min(bytes.len());
         self.max_frame = self.max_frame.max(bytes.len());
         self.out.write_all(bytes)?;
+        // Each frame goes to disk at once (about 12 small writes a second), so a crash loses
+        // at most the block being collected, never buffered frames (VRT-41).
+        self.out.flush()?;
         Ok(())
     }
 

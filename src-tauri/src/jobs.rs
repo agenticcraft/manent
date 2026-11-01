@@ -28,7 +28,7 @@ use crate::rolling;
 #[derive(Debug, Clone, Serialize)]
 pub struct JobView {
     pub id: u64,
-    /// "import" or "transcribe".
+    /// "import", "transcribe" or "recover".
     pub kind: &'static str,
     /// The file or meeting name.
     pub name: String,
@@ -43,6 +43,7 @@ pub struct JobView {
 enum Work {
     Import(PathBuf),
     Transcribe(i64),
+    Recover(i64),
 }
 
 /// Finished jobs stay listed (so the UI can show the outcome) until dismissed, up to this many.
@@ -99,6 +100,9 @@ impl Jobs {
                         }
                         Work::Transcribe(meeting_id) => {
                             tauri::async_runtime::block_on(run_transcribe(&worker, id, meeting_id))
+                        }
+                        Work::Recover(meeting_id) => {
+                            tauri::async_runtime::block_on(run_recover(&worker, id, meeting_id))
                         }
                     };
                     match result {
@@ -168,6 +172,12 @@ impl Jobs {
             Some(meeting_id),
             Work::Transcribe(meeting_id),
         )
+    }
+
+    /// Recover a recording cut off when the app died (VRT-41): repair its tracks, make the
+    /// playback file, then transcribe it.
+    pub fn recover(&self, meeting_id: i64, name: String) -> u64 {
+        self.add("recover", name, Some(meeting_id), Work::Recover(meeting_id))
     }
 
     pub fn list(&self) -> Vec<JobView> {
@@ -307,6 +317,70 @@ async fn run_import(s: &Shared, id: u64, path: PathBuf) -> Result<(), String> {
         tauri::async_runtime::spawn_blocking(move || audio::mixdown(&files, &mix)).await
     {
         eprintln!("mixdown of import {meeting_id} failed: {e}");
+    }
+    transcribe(s, id, meeting_id, DECODE_SHARE).await
+}
+
+/// A meeting still marked "recording" at startup: the app died while recording it. Its FLAC
+/// tracks lack their final header and the last moments; keep every complete frame.
+async fn run_recover(s: &Shared, id: u64, meeting_id: i64) -> Result<(), String> {
+    let err = |e: crate::db::DbError| e.to_string();
+    s.update(id, |j| j.stage = "decoding");
+    let Some(meeting) = s.db.get_meeting(meeting_id).await.map_err(err)? else {
+        return Ok(());
+    };
+    let mut files = Vec::new();
+    let mut longest: f64 = 0.0;
+    for t in s.db.list_tracks(meeting_id).await.map_err(err)? {
+        let path = PathBuf::from(&t.path);
+        let repaired = {
+            let path = path.clone();
+            tauri::async_runtime::spawn_blocking(move || audio::repair_flac(&path))
+                .await
+                .map_err(|e| e.to_string())?
+        };
+        match repaired {
+            Ok(seconds) if seconds > 0.0 => {
+                s.db.set_track_seconds(t.id, seconds).await.map_err(err)?;
+                longest = longest.max(seconds);
+                files.push(path);
+            }
+            other => {
+                // Nothing usable in it (the crash came before any audio reached the disk).
+                if let Err(e) = other {
+                    eprintln!("recovering meeting {meeting_id}: {}: {e}", t.path);
+                }
+                let _ = std::fs::remove_file(&path);
+                s.db.delete_track(t.id).await.map_err(err)?;
+            }
+        }
+    }
+    if files.is_empty() {
+        // No audio at all: nothing to keep.
+        s.db.delete_meeting(meeting_id).await.map_err(err)?;
+        let _ = std::fs::remove_dir_all(&meeting.dir);
+        eprintln!("recovering meeting {meeting_id}: no audio was saved; removed");
+        return Ok(());
+    }
+    s.db.set_interrupted(meeting_id).await.map_err(err)?;
+    let duration_ms = (longest * 1000.0).round() as i64;
+    s.db.finish_meeting(meeting_id, duration_ms, "processing")
+        .await
+        .map_err(err)?;
+    let mix = PathBuf::from(&meeting.dir).join(MIX_FILE);
+    if let Ok(Err(e)) =
+        tauri::async_runtime::spawn_blocking(move || audio::mixdown(&files, &mix)).await
+    {
+        eprintln!("mixdown of recovered meeting {meeting_id} failed: {e}");
+    }
+    eprintln!("recovered meeting {meeting_id}: {longest:.1} s kept");
+    let status = s.engine.status();
+    if !(status.engine_installed && status.model_installed) {
+        // Without the engine it stays untranscribed, as a recording made without it.
+        s.db.finish_meeting(meeting_id, duration_ms, "done")
+            .await
+            .map_err(err)?;
+        return Ok(());
     }
     transcribe(s, id, meeting_id, DECODE_SHARE).await
 }

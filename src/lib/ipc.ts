@@ -119,7 +119,7 @@ export interface SearchHit {
 /** A background transcription job (Rust: jobs::JobView). */
 export interface JobView {
   id: number;
-  kind: "import" | "transcribe";
+  kind: "import" | "transcribe" | "recover";
   /** File or meeting name. */
   name: string;
   meeting_id: number | null;
@@ -208,6 +208,8 @@ export interface MeetingDetail {
   duration_ms: number;
   status: MeetingStatus;
   dir: string;
+  /** The app died during this recording; it was recovered up to the last saved audio (VRT-41). */
+  interrupted: boolean;
   /** Playback URL on the app's local media server (127.0.0.1), or null without a mix. */
   mix_url: string | null;
 }

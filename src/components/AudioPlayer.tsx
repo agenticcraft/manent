@@ -47,8 +47,16 @@ export function AudioPlayer({
       setTime(el.currentTime);
       onTimeRef.current?.(el.currentTime * 1000);
     };
+    // WebKitGTK sometimes reports a duration of 0 for a short Ogg file that is fine (seen in
+    // VRT-41; the same file is fine the next time). Keep the meeting's own length meanwhile
+    // and load the file once more, which gives the real duration.
+    let reloaded = false;
     const onMeta = () => {
-      if (Number.isFinite(el.duration)) setDuration(el.duration);
+      if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
+      else if (el.duration === 0 && el.readyState >= 1 && !reloaded) {
+        reloaded = true;
+        el.load();
+      }
     };
     // WebKit can ignore or reset a position set while the file is still loading: apply a
     // requested seek again once it can play, if it didn't stick.
@@ -67,6 +75,7 @@ export function AudioPlayer({
     el.addEventListener("loadedmetadata", onMeta);
     el.addEventListener("loadedmetadata", applyPending);
     el.addEventListener("canplay", applyPending);
+    el.addEventListener("canplay", onMeta);
     el.addEventListener("durationchange", onMeta);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
@@ -78,6 +87,7 @@ export function AudioPlayer({
       el.removeEventListener("loadedmetadata", onMeta);
       el.removeEventListener("loadedmetadata", applyPending);
       el.removeEventListener("canplay", applyPending);
+      el.removeEventListener("canplay", onMeta);
       el.removeEventListener("durationchange", onMeta);
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);

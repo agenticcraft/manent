@@ -48,6 +48,8 @@ pub struct Meeting {
     pub duration_ms: i64,
     pub status: String,
     pub dir: String,
+    /// The app died during this recording and it was recovered (VRT-41).
+    pub interrupted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
@@ -208,6 +210,24 @@ impl Db {
         sqlx::query("UPDATE meetings SET duration_ms = ?, status = ? WHERE id = ?")
             .bind(duration_ms)
             .bind(status)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Mark a recording as cut off by a crash and recovered (VRT-41).
+    pub async fn set_interrupted(&self, id: i64) -> Result<()> {
+        sqlx::query("UPDATE meetings SET interrupted = 1 WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Remove a track that holds nothing usable (VRT-41).
+    pub async fn delete_track(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM tracks WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -1221,6 +1241,6 @@ mod tests {
             .fetch_one(&db.pool)
             .await
             .unwrap();
-        assert_eq!(migrations.0, 3, "each migration applied once");
+        assert_eq!(migrations.0, 4, "each migration applied once");
     }
 }

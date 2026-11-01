@@ -1,4 +1,4 @@
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioPlayer, type PlayerHandle } from "@/components/AudioPlayer";
 import { ExportMenu } from "@/components/ExportMenu";
@@ -119,6 +119,17 @@ export function Meeting({
               <p className="mt-1 text-sm text-muted-foreground tabular-nums">
                 {formatDateTime(meeting.started_at)} · {formatDuration(meeting.duration_ms)}
               </p>
+              {meeting.interrupted && (
+                <p
+                  className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"
+                  role="note"
+                  data-testid="interrupted-note"
+                >
+                  <TriangleAlert className="size-3.5" aria-hidden />
+                  Veritas quit unexpectedly during this recording. Everything up to{" "}
+                  {formatDuration(meeting.duration_ms)} was recovered.
+                </p>
+              )}
             </div>
             <div className="flex gap-2">
               <ExportMenu

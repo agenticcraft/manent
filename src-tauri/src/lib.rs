@@ -50,15 +50,22 @@ pub fn run() {
                 engine.clone(),
                 paths.clone(),
             );
-            // A transcription interrupted by quitting the app runs again.
+            // A transcription interrupted by quitting the app runs again; a recording cut off
+            // because the app died is recovered and then transcribed (VRT-41).
             for m in tauri::async_runtime::block_on(db.list_meetings())? {
-                if m.status == "processing" {
-                    let name = if m.title.is_empty() {
-                        "Untitled meeting".to_string()
-                    } else {
-                        m.title
-                    };
-                    jobs.transcribe(m.id, name);
+                let name = if m.title.is_empty() {
+                    "Untitled meeting".to_string()
+                } else {
+                    m.title
+                };
+                match m.status.as_str() {
+                    "processing" => {
+                        jobs.transcribe(m.id, name);
+                    }
+                    "recording" => {
+                        jobs.recover(m.id, name);
+                    }
+                    _ => {}
                 }
             }
             // Meetings from before VRT-37 get their transcript.md.
