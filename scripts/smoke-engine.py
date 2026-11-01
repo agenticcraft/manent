@@ -171,7 +171,9 @@ s.check(abs(duration_ms / 1000 - elapsed) < 1.5 and all(abs(sec - duration_ms / 
         f"recording complete: {duration_ms / 1000:.1f} s (wall {elapsed:.1f} s), tracks {tracks}")
 
 s.close()
-time.sleep(2)
+gone_by = time.time() + 5  # the app exits, then the helper (usually within ~1 s)
+while helper_pids() and time.time() < gone_by:
+    time.sleep(0.2)
 s.check(not helper_pids(), f"helper stopped with the app ({helper_pids()})")
 print(f"\n{'PASS' if not s.failures else 'FAILED: ' + '; '.join(s.failures)}; screenshots in {OUT}")
 sys.exit(1 if s.failures else 0)
