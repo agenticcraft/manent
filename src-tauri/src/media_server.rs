@@ -246,9 +246,7 @@ mod tests {
     }
 
     fn setup() -> (MediaServer, AppPaths, Vec<u8>) {
-        let paths = AppPaths {
-            data: crate::test_util::temp_dir(),
-        };
+        let paths = AppPaths::new(crate::test_util::temp_dir());
         let dir = paths.meetings_root().join("7");
         std::fs::create_dir_all(&dir).unwrap();
         let data: Vec<u8> = (0..=255u8).cycle().take(10_000).collect();

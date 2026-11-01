@@ -14,7 +14,8 @@ use tauri::{AppHandle, Emitter};
 
 use crate::audio::{self, SourceKind};
 use crate::commands::{
-    PassEvent, SpeakersChanged, named_stretches, new_segment, now_ms, relabel_final, segment_view,
+    KEEP_AUDIO_SETTING, PassEvent, SpeakersChanged, named_stretches, new_segment, now_ms,
+    relabel_final, segment_view, waveform_bars,
 };
 use crate::db::{Db, NewSegment, NewTrack, Pass};
 use crate::engine::{EngineManager, SAMPLE_RATE};
@@ -46,9 +47,12 @@ enum Work {
 
 /// Finished jobs stay listed (so the UI can show the outcome) until dismissed, up to this many.
 const KEEP_FINISHED: usize = 20;
-/// Transcription plus diarization take about this much of the audio's length (debug build,
-/// both in parallel, VRT-17), plus a little startup; used only to show progress.
-const EXPECTED_RTF: f64 = 0.2;
+/// Transcription plus diarization take about this much of the audio's length, plus a little
+/// startup; used only to show progress. Measured in VRT-35 (release build, 25-40 minutes):
+/// 0.105 for one imported track and for a recording's two tracks alike.
+const EXPECTED_RTF: f64 = 0.11;
+/// Share of an import's progress bar for decoding (about 45 s of a 280 s job in VRT-35).
+const DECODE_SHARE: f64 = 0.15;
 
 struct Shared {
     app: Option<AppHandle>,
@@ -174,6 +178,13 @@ impl Jobs {
         self.shared.emit(true);
     }
 
+    /// Whether any job is waiting or running.
+    pub fn any_running(&self) -> bool {
+        lock(&self.shared.jobs)
+            .iter()
+            .any(|j| !matches!(j.stage, "done" | "failed"))
+    }
+
     /// Whether a meeting has a job waiting or running.
     pub fn busy(&self, meeting_id: i64) -> bool {
         lock(&self.shared.jobs)
@@ -266,12 +277,12 @@ async fn run_import(s: &Shared, id: u64, path: PathBuf) -> Result<(), String> {
             audio::import_to_flac(&src, &dest, &mut |f| p.set(f))
         });
         tokio::pin!(handle);
-        // Report decoding progress while it runs (0-30 % of the job).
+        // Report decoding progress while it runs (the first DECODE_SHARE of the job).
         let result = loop {
             tokio::select! {
                 r = &mut handle => break r,
                 () = tokio::time::sleep(Duration::from_millis(200)) => {
-                    s.update(id, |j| j.progress = 0.3 * progress_target.get());
+                    s.update(id, |j| j.progress = DECODE_SHARE * progress_target.get());
                 }
             }
         };
@@ -295,7 +306,7 @@ async fn run_import(s: &Shared, id: u64, path: PathBuf) -> Result<(), String> {
     {
         eprintln!("mixdown of import {meeting_id} failed: {e}");
     }
-    transcribe(s, id, meeting_id, 0.3).await
+    transcribe(s, id, meeting_id, DECODE_SHARE).await
 }
 
 async fn run_transcribe(s: &Shared, id: u64, meeting_id: i64) -> Result<(), String> {
@@ -415,6 +426,10 @@ async fn transcribe(s: &Shared, id: u64, meeting_id: i64, base: f64) -> Result<(
     s.db.finish_meeting(meeting_id, duration_ms, "done")
         .await
         .map_err(err)?;
+    let keep: Option<String> = s.db.get_setting(KEEP_AUDIO_SETTING).await.map_err(err)?;
+    if keep.as_deref() == Some("mix") {
+        drop_tracks(s, meeting_id).await;
+    }
     if let Some(app) = &s.app {
         let segments = blocks
             .into_iter()
@@ -439,6 +454,24 @@ async fn transcribe(s: &Shared, id: u64, meeting_id: i64, base: f64) -> Result<(
     Ok(())
 }
 
+/// Settings > Storage "playback file only" (VRT-27): once transcribed, the FLAC tracks go and
+/// only mix.opus (plus the cached waveform) stays. Never without a playback file.
+async fn drop_tracks(s: &Shared, meeting_id: i64) {
+    let Ok(Some(meeting)) = s.db.get_meeting(meeting_id).await else {
+        return;
+    };
+    if !std::path::Path::new(&meeting.dir).join(MIX_FILE).is_file() {
+        return;
+    }
+    if let Err(e) = waveform_bars(&s.db, &s.paths, meeting_id).await {
+        eprintln!("waveform of meeting {meeting_id} before dropping its tracks: {e}");
+        return;
+    }
+    for t in s.db.list_tracks(meeting_id).await.unwrap_or_default() {
+        let _ = std::fs::remove_file(&t.path);
+    }
+}
+
 /// The meeting's length: its longest track.
 async fn meeting_duration(s: &Shared, meeting_id: i64) -> i64 {
     s.db.list_tracks(meeting_id)
@@ -453,9 +486,7 @@ mod tests {
     use std::path::Path;
 
     fn setup() -> (Jobs, Db, AppPaths) {
-        let paths = AppPaths {
-            data: crate::test_util::temp_dir(),
-        };
+        let paths = AppPaths::new(crate::test_util::temp_dir());
         std::fs::create_dir_all(paths.meetings_root()).unwrap();
         let db = tauri::async_runtime::block_on(Db::open_in_memory()).unwrap();
         // No engine downloaded in this folder.

@@ -19,8 +19,8 @@ use crate::live::{SharedHistory, TrackRef};
 use crate::passes::{self, Labelled, RollingLabels};
 
 const RATE: u64 = SAMPLE_RATE as u64;
-/// Time between rolling passes.
-const INTERVAL: Duration = Duration::from_secs(45);
+/// Time between rolling passes unless Settings says otherwise (VRT-27).
+pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(45);
 /// A pass needs at least this much new audio.
 const MIN_NEW: u64 = 20 * RATE;
 /// Audio before the new stretch that is transcribed and diarized along for context.
@@ -190,6 +190,7 @@ pub fn spawn<E: Engine + Clone + Send + Sync + 'static>(
     tracks: Vec<PassTrack>,
     engine: E,
     tmp: PathBuf,
+    interval: Duration,
     on_pass: impl Fn(PassResult) + Send + 'static,
     on_error: impl Fn(String) + Send + 'static,
 ) -> std::io::Result<Rolling> {
@@ -203,7 +204,7 @@ pub fn spawn<E: Engine + Clone + Send + Sync + 'static>(
             let mut last = Instant::now();
             while !flag.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(250));
-                if last.elapsed() < INTERVAL {
+                if last.elapsed() < interval {
                     continue;
                 }
                 last = Instant::now();
@@ -379,7 +380,7 @@ mod engine_tests {
     #[ignore = "needs the downloaded engine and model"]
     async fn final_pass_labels_speakers_and_keeps_only_the_users_own_words() {
         let data = std::env::var_os("VERITAS_TEST_ENGINE_DATA").expect("VERITAS_TEST_ENGINE_DATA");
-        let paths = AppPaths { data: data.into() };
+        let paths = AppPaths::new(data.into());
         let engine = EngineManager::new(paths.clone(), |_| {});
         // System: two remote speakers, then 13 s of silence.
         let mut system = fixture("en-two-speakers.wav");

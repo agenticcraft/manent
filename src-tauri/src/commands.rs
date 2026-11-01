@@ -405,7 +405,20 @@ pub async fn start_recording(
                 history: t.history.clone(),
             })
             .collect();
-        passes = start_rolling(&app, db.inner(), engine.inner(), &paths, meeting_id, tracks);
+        let seconds: Option<u64> = db
+            .get_setting(ROLLING_INTERVAL_SETTING)
+            .await
+            .map_err(|e| e.to_string())?;
+        let interval = seconds.map_or(rolling::DEFAULT_INTERVAL, std::time::Duration::from_secs);
+        passes = start_rolling(
+            &app,
+            db.inner(),
+            engine.inner(),
+            &paths,
+            meeting_id,
+            tracks,
+            interval,
+        );
     }
     *current = Some(ActiveRecording {
         recording,
@@ -757,6 +770,7 @@ fn start_rolling(
     paths: &AppPaths,
     meeting_id: i64,
     tracks: Vec<PassTrack>,
+    interval: std::time::Duration,
 ) -> Option<Rolling> {
     let kinds: HashMap<i64, SourceKind> = tracks
         .iter()
@@ -810,7 +824,18 @@ fn start_rolling(
             },
         );
     };
-    match rolling::spawn(tracks, engine.clone(), paths.tmp_dir(), on_pass, on_error) {
+    eprintln!(
+        "meeting {meeting_id}: rolling passes every {} s",
+        interval.as_secs()
+    );
+    match rolling::spawn(
+        tracks,
+        engine.clone(),
+        paths.tmp_dir(),
+        interval,
+        on_pass,
+        on_error,
+    ) {
         Ok(r) => Some(r),
         Err(e) => {
             eprintln!("starting the rolling passes failed: {e}");
@@ -1138,6 +1163,17 @@ pub async fn retranscribe(
     if meeting.status == "recording" {
         return Err("Stop the recording first".into());
     }
+    let tracks = db
+        .list_tracks(meeting_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    if tracks.is_empty()
+        || tracks
+            .iter()
+            .any(|t| !std::path::Path::new(&t.path).is_file())
+    {
+        return Err("The original tracks of this meeting were not kept (Settings > Storage), so it can't be transcribed again".into());
+    }
     let name = if meeting.title.is_empty() {
         "Untitled meeting".into()
     } else {
@@ -1164,6 +1200,10 @@ pub async fn meeting_waveform(
     paths: State<'_, AppPaths>,
     id: i64,
 ) -> Result<Vec<f32>, String> {
+    waveform_bars(&db, &paths, id).await
+}
+
+pub(crate) async fn waveform_bars(db: &Db, paths: &AppPaths, id: i64) -> Result<Vec<f32>, String> {
     const BINS: usize = 600;
     let meeting = db
         .get_meeting(id)
@@ -1189,6 +1229,9 @@ pub async fn meeting_waveform(
         .map(|t| std::path::PathBuf::from(t.path))
         .filter(|p| p.is_file())
         .collect();
+    if files.is_empty() {
+        return Ok(Vec::new());
+    }
     let bars = tauri::async_runtime::spawn_blocking(move || {
         let refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
         audio::waveform(&refs, BINS)
@@ -1252,6 +1295,162 @@ pub async fn search_transcripts(
     db.search(&query, 50).await.map_err(|e| e.to_string())
 }
 
+/// Settings key: seconds between rolling passes while recording (VRT-27).
+pub const ROLLING_INTERVAL_SETTING: &str = "transcription.rolling_interval_s";
+/// Settings key: "all" (tracks and playback file) or "mix" (playback file only).
+pub const KEEP_AUDIO_SETTING: &str = "storage.keep";
+/// The rolling pass intervals offered (shorter costs CPU, longer delays speaker names).
+pub const ROLLING_INTERVALS: [u64; 4] = [30, 45, 60, 90];
+
+/// Settings > Transcription and Storage (VRT-27).
+#[derive(Debug, Clone, Serialize)]
+pub struct AppSettings {
+    pub rolling_interval_s: u64,
+    pub rolling_intervals: Vec<u64>,
+    /// "all" or "mix".
+    pub keep_audio: String,
+    pub meetings_dir: String,
+    pub default_meetings_dir: String,
+}
+
+async fn app_settings(db: &Db, paths: &AppPaths) -> Result<AppSettings, String> {
+    let err = |e: crate::db::DbError| e.to_string();
+    let interval: Option<u64> = db
+        .get_setting(ROLLING_INTERVAL_SETTING)
+        .await
+        .map_err(err)?;
+    let keep: Option<String> = db.get_setting(KEEP_AUDIO_SETTING).await.map_err(err)?;
+    Ok(AppSettings {
+        rolling_interval_s: interval.unwrap_or(rolling::DEFAULT_INTERVAL.as_secs()),
+        rolling_intervals: ROLLING_INTERVALS.to_vec(),
+        keep_audio: keep.unwrap_or_else(|| "all".into()),
+        meetings_dir: paths.meetings_root().display().to_string(),
+        default_meetings_dir: paths.data.join("meetings").display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn get_app_settings(
+    db: State<'_, Db>,
+    paths: State<'_, AppPaths>,
+) -> Result<AppSettings, String> {
+    app_settings(&db, &paths).await
+}
+
+/// How often speaker labels are updated while recording; applies to the next recording.
+#[tauri::command]
+pub async fn set_rolling_interval(db: State<'_, Db>, seconds: u64) -> Result<(), String> {
+    if !ROLLING_INTERVALS.contains(&seconds) {
+        return Err(format!("choose one of {ROLLING_INTERVALS:?} seconds"));
+    }
+    db.set_setting(ROLLING_INTERVAL_SETTING, &seconds)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Which audio new meetings keep after transcription: "all" or "mix" (playback file only).
+#[tauri::command]
+pub async fn set_keep_audio(db: State<'_, Db>, keep: String) -> Result<(), String> {
+    if keep != "all" && keep != "mix" {
+        return Err("keep must be \"all\" or \"mix\"".into());
+    }
+    db.set_setting(KEEP_AUDIO_SETTING, &keep)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Nothing may be recording or transcribing while files move or the engine changes.
+async fn ensure_idle(recorder: &RecorderState, jobs: &Jobs) -> Result<(), String> {
+    if recorder.0.lock().await.is_some() {
+        return Err("Stop the recording first".into());
+    }
+    if jobs.any_running() {
+        return Err("Wait until the running transcriptions are done".into());
+    }
+    Ok(())
+}
+
+/// Move every meeting to another folder (`to` = None: back to the default) and use it from
+/// now on (VRT-27). The database follows the files.
+#[tauri::command]
+pub async fn move_meetings(
+    db: State<'_, Db>,
+    paths: State<'_, AppPaths>,
+    recorder: State<'_, RecorderState>,
+    jobs: State<'_, Jobs>,
+    to: Option<String>,
+) -> Result<AppSettings, String> {
+    ensure_idle(&recorder, &jobs).await?;
+    let err = |e: crate::db::DbError| e.to_string();
+    let from = paths.meetings_root();
+    let target = to
+        .as_deref()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| paths.data.join("meetings"));
+    let (f, t) = (from.clone(), target.clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&f)?;
+        crate::paths::move_meeting_folders(&f, &t)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    point_meetings_to(&db, &target).await.map_err(err)?;
+    let chosen = to.filter(|t| std::path::Path::new(t) != paths.data.join("meetings"));
+    db.set_setting(crate::paths::MEETINGS_DIR_SETTING, &chosen)
+        .await
+        .map_err(err)?;
+    paths.set_meetings_root(chosen.map(std::path::PathBuf::from));
+    app_settings(&db, &paths).await
+}
+
+/// After a move: every meeting whose folder is now in `target` points there, with its tracks.
+async fn point_meetings_to(db: &Db, target: &std::path::Path) -> crate::db::Result<()> {
+    for m in db.list_meetings().await? {
+        let Some(name) = std::path::Path::new(&m.dir).file_name() else {
+            continue;
+        };
+        let dir = target.join(name);
+        if !dir.is_dir() {
+            continue;
+        }
+        db.set_meeting_dir(m.id, &dir.display().to_string()).await?;
+        for track in db.list_tracks(m.id).await? {
+            if let Some(file) = std::path::Path::new(&track.path).file_name() {
+                db.set_track_path(track.id, &dir.join(file).display().to_string())
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Verify the engine and model; damaged files are removed so they download again (VRT-27).
+/// Returns the names of the files that were damaged.
+#[tauri::command]
+pub async fn engine_check(
+    engine: State<'_, EngineManager>,
+    recorder: State<'_, RecorderState>,
+    jobs: State<'_, Jobs>,
+) -> Result<Vec<String>, String> {
+    ensure_idle(&recorder, &jobs).await?;
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.check_blocking())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Delete the engine and model (frees ~1.1 GB); Download brings them back.
+#[tauri::command]
+pub async fn engine_remove(
+    engine: State<'_, EngineManager>,
+    recorder: State<'_, RecorderState>,
+    jobs: State<'_, Jobs>,
+) -> Result<(), String> {
+    ensure_idle(&recorder, &jobs).await?;
+    engine.remove()
+}
+
 /// Engine and model state (Settings > Transcription, VRT-14).
 #[tauri::command]
 pub fn engine_status(engine: State<'_, EngineManager>) -> EngineStatus {
@@ -1288,6 +1487,38 @@ pub fn engine_notice(engine: State<'_, EngineManager>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn moved_meetings_point_to_their_new_folder() {
+        let db = Db::open_in_memory().await.unwrap();
+        let from = crate::test_util::temp_dir().join("meetings");
+        let dir = from.join("1");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mic.flac"), b"x").unwrap();
+        let m = db
+            .create_meeting("m", 1, &dir.display().to_string())
+            .await
+            .unwrap();
+        let track = NewTrack {
+            source_kind: "mic",
+            source_id: "mic",
+            device_name: "Mic",
+            path: &dir.join("mic.flac").display().to_string(),
+            seconds: 1.0,
+        };
+        db.add_track(m, &track).await.unwrap();
+        let to = crate::test_util::temp_dir().join("Elsewhere");
+        crate::paths::move_meeting_folders(&from, &to).unwrap();
+        point_meetings_to(&db, &to).await.unwrap();
+        let moved = db.get_meeting(m).await.unwrap().unwrap();
+        assert_eq!(std::path::Path::new(&moved.dir), to.join("1"));
+        let t = &db.list_tracks(m).await.unwrap()[0];
+        assert_eq!(
+            std::fs::read(&t.path).unwrap(),
+            b"x",
+            "the track is found at its new place"
+        );
+    }
 
     fn block(label: &str, start_ms: u32, end_ms: u32) -> Labelled {
         Labelled {

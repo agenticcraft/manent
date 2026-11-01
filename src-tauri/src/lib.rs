@@ -27,8 +27,15 @@ pub fn run() {
         .setup(|app| {
             // Open the database and run migrations before any window can use it.
             let paths = paths::AppPaths::resolve(app.path().app_data_dir()?);
-            std::fs::create_dir_all(paths.meetings_root())?;
+            std::fs::create_dir_all(&paths.data)?;
             let db = tauri::async_runtime::block_on(db::Db::open(&paths.database()))?;
+            // A meetings folder chosen in Settings > Storage (VRT-27).
+            let chosen: Option<Option<String>> =
+                tauri::async_runtime::block_on(db.get_setting(paths::MEETINGS_DIR_SETTING))?;
+            if let Some(dir) = chosen.flatten() {
+                paths.set_meetings_root(Some(dir.into()));
+            }
+            std::fs::create_dir_all(paths.meetings_root())?;
             let media = media_server::MediaServer::start(paths.clone())?;
             let handle = app.handle().clone();
             let engine = engine::EngineManager::new(paths.clone(), move |status| {
@@ -95,6 +102,12 @@ pub fn run() {
             commands::retranscribe,
             commands::list_jobs,
             commands::dismiss_job,
+            commands::get_app_settings,
+            commands::set_rolling_interval,
+            commands::set_keep_audio,
+            commands::move_meetings,
+            commands::engine_check,
+            commands::engine_remove,
             commands::engine_status,
             commands::engine_download,
             commands::engine_cancel_download,

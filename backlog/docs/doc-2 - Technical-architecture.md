@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-11-01T10:10:00Z'
+updated_date: '2026-11-01T10:37:00Z'
 ---
 ## 1. Technical foundation
 
@@ -89,12 +89,14 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
   - `segments(id, meeting_id → meetings, track_id → tracks, pass ∈ caption|rolling|final, speaker_id → speakers, speaker_label, start_ms, end_ms, text, words_json)`: the three passes of §1.3; a rolling or final pass atomically replaces the segments of earlier passes in its time window.
   - `speakers(id, name, color)` and `voice_samples(id, speaker_id → speakers, embedding BLOB (LE f32), encoder_id, clean_seconds, meeting_id → meetings, created_at)` (§1.4).
   - `meeting_voices(meeting_id → meetings, label, speaker_id → speakers, suggested_id → speakers, distance, embedding, encoder_id, clean_seconds, confirmed)`: a meeting's speaker labels and who they are (§1.4, migration 0002).
-  - `settings(key, value JSON)`: `recording.sources` (Settings > Sources), `speaker.me_name`.
+  - `settings(key, value JSON)`: `recording.sources` (Settings > Sources), `speaker.me_name`, `transcription.rolling_interval_s` (30/45/60/90, default 45), `storage.keep` (`all` or `mix`), `storage.meetings_dir` (null = `<app data>/meetings`) (VRT-27).
 - Deleting a meeting cascades to its tracks and segments; deleting a person deletes their voice samples (segments stay, unnamed).
 - **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën". Matches come back with a snippet whose matched words are wrapped in U+0001/U+0002 (transcripts can contain brackets); the Library shows them under "In transcripts" and opens the meeting at the match (VRT-20).
 - **Export (VRT-21, `export.rs`):** Markdown, plain text, SRT (cues of at most 7 s, split between words) and JSON (blocks with their words and times) from the stored segments, speakers named as in the app; written where the save dialog says. Snapshot tests in `src-tauri/tests/snapshots` (`UPDATE_SNAPSHOTS=1` to accept a change).
 - **Waveform:** `meeting_waveform` computes 600 loudness bars (RMS per bin, loudest track, scaled to the 98th percentile) from the FLAC tracks and caches them as `waveform.json` in the meeting folder once the meeting is done.
-- The engine lives in `<app data>/engine/` (libparakeet, libgomp, `engine.json` naming the image manifest) and the model in `<app data>/models/` (the bundle and its NOTICE). Interrupted downloads stay as `*.part` and resume (VRT-14).
+- The engine lives in `<app data>/engine/` (libparakeet, libgomp, `engine.json` naming the image manifest and the sha256 of each kept file, so Settings > Check model finds damage) and the model in `<app data>/models/` (the bundle and its NOTICE). Interrupted downloads stay as `*.part` and resume (VRT-14).
+- **Moving the meetings folder (VRT-27):** Settings > Storage moves every meeting folder (rename, or copy and delete across file systems), then points `meetings.dir` and `tracks.path` to the new place; refused while recording or transcribing. The root is shared by every part of the app (`AppPaths`), so the media server and jobs use it at once.
+- **Keeping only the playback file (VRT-27):** with `storage.keep = mix`, a meeting's FLAC tracks are deleted after its final pass (the waveform is cached first; never without `mix.opus`). Re-transcribe then explains that the tracks are gone. Measured sizes: FLAC tracks of a recording ~400 MB per hour, `mix.opus` ~13 MB per hour.
 - Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2), or `import.flac` for an imported file, and `mix.opus`.
 - **Playback mixdown (VRT-10):** on Stop the tracks are mixed into `mix.opus`: mono, 48 kHz, Opus at 32 kbps (~14 MB per hour), streamed (never the whole meeting in memory), tracks at other sample rates resampled. Ogg pages end every second so players can seek. libopus is built statically from source by the `opus` crate (needs cmake, no system library).
 - **Playback transport:** the webview plays `mix.opus` from a local media server inside the app (`media_server.rs`): bound to 127.0.0.1 on a random port, a random 128-bit token in every URL, only `meetings/<id>/mix.opus` inside the meetings folder, HTTP Range support, one thread per request. Reasons: WebKitGTK can't play media from Tauri's custom protocols, and from `blob:` URLs it can't seek. The player uses `preload="auto"`; with `metadata` WebKitGTK never learns an Ogg file's duration.

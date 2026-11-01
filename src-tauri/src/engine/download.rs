@@ -210,6 +210,42 @@ fn image_layer(agent: &ureq::Agent, image: &EngineImage) -> Result<(String, u64)
     Ok((digest, size))
 }
 
+/// sha256 (lowercase hex) of a file, read in 1 MB blocks.
+pub fn file_sha256(path: &Path) -> std::io::Result<String> {
+    let mut f = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            return Ok(hex(&hasher.finalize()));
+        }
+        hasher.update(&buf[..n]);
+    }
+}
+
+/// Files of the installed engine that are missing or changed since installation (by the
+/// hashes in engine.json; an install without hashes is only checked for presence).
+pub fn damaged_engine_files(dir: &Path, image: &EngineImage) -> Vec<String> {
+    let recorded: serde_json::Value = std::fs::read_to_string(dir.join(INSTALLED))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    image
+        .files
+        .iter()
+        .filter(|(_, name)| {
+            let path = dir.join(name);
+            match (recorded["files"][*name].as_str(), file_sha256(&path)) {
+                (_, Err(_)) => true,
+                (Some(expected), Ok(actual)) => expected != actual,
+                (None, Ok(_)) => false,
+            }
+        })
+        .map(|(_, name)| name.to_string())
+        .collect()
+}
+
 /// File that records which image the engine folder holds.
 const INSTALLED: &str = "engine.json";
 
@@ -251,6 +287,7 @@ pub fn install_engine(
 
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(File::open(&layer_file)?));
     let mut found = Vec::new();
+    let mut hashes = serde_json::Map::new();
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry
@@ -270,6 +307,7 @@ pub fn install_engine(
             out.sync_all()?;
             std::fs::rename(&tmp, dir.join(name))?;
             found.push(*name);
+            hashes.insert(name.to_string(), file_sha256(&dir.join(name))?.into());
         }
     }
     if let Some((path, _)) = image.files.iter().find(|(_, n)| !found.contains(n)) {
@@ -277,7 +315,9 @@ pub fn install_engine(
     }
     std::fs::write(
         dir.join(INSTALLED),
-        serde_json::json!({ "manifest": image.manifest, "layer": digest }).to_string(),
+        // The file hashes let "Check" (VRT-27) find a damaged library later.
+        serde_json::json!({ "manifest": image.manifest, "layer": digest, "files": hashes })
+            .to_string(),
     )?;
     std::fs::remove_file(&layer_file)?;
     Ok(())
@@ -559,5 +599,10 @@ mod tests {
             ["engine.json", "libparakeet.so"],
             "no glibc, no layer left behind"
         );
+        assert!(damaged_engine_files(&dir, &image).is_empty());
+        std::fs::write(dir.join("libparakeet.so"), b"changed").unwrap();
+        assert_eq!(damaged_engine_files(&dir, &image), ["libparakeet.so"]);
+        std::fs::remove_file(dir.join("libparakeet.so")).unwrap();
+        assert_eq!(damaged_engine_files(&dir, &image), ["libparakeet.so"]);
     }
 }

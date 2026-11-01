@@ -88,6 +88,15 @@ export interface VoiceView {
   confirmed: boolean;
 }
 
+/** Settings > Transcription and Storage (Rust: commands::AppSettings). */
+export interface AppSettings {
+  rolling_interval_s: number;
+  rolling_intervals: number[];
+  keep_audio: "all" | "mix";
+  meetings_dir: string;
+  default_meetings_dir: string;
+}
+
 /** Transcript export formats (Rust: export::Format). */
 export type ExportFormat = "md" | "txt" | "srt" | "json";
 
@@ -272,6 +281,12 @@ export interface Commands {
   merge_people: { args: { keep: number; merged: number }; result: null };
   delete_person: { args: { id: number }; result: null };
   set_me_name: { args: { name: string }; result: null };
+  get_app_settings: { args: NoArgs; result: AppSettings };
+  set_rolling_interval: { args: { seconds: number }; result: null };
+  set_keep_audio: { args: { keep: AppSettings["keep_audio"] }; result: null };
+  move_meetings: { args: { to: string | null }; result: AppSettings };
+  engine_check: { args: NoArgs; result: string[] };
+  engine_remove: { args: NoArgs; result: null };
   engine_status: { args: NoArgs; result: EngineStatus };
   engine_download: { args: NoArgs; result: null };
   engine_cancel_download: { args: NoArgs; result: null };

@@ -264,6 +264,66 @@ impl EngineManager {
         helper.request(op, wav).await
     }
 
+    /// Verify the installed engine and model (VRT-27). Damaged or missing files are removed,
+    /// so the status shows them as not downloaded and Download fetches them again. Returns
+    /// the names of the files that had to go (empty: everything is fine). Slow (hashes the
+    /// 1.1 GB model): call off the async runtime.
+    pub fn check_blocking(&self) -> Result<Vec<String>, String> {
+        let image = assets::ENGINE.ok_or_else(unsupported)?;
+        self.stop_helper();
+        let mut damaged = Vec::new();
+        let engine_dir = self.shared.paths.engine_dir();
+        if download::engine_installed(&engine_dir, &image) {
+            for name in download::damaged_engine_files(&engine_dir, &image) {
+                // Without engine.json the whole engine downloads again.
+                let _ = std::fs::remove_file(engine_dir.join("engine.json"));
+                let _ = std::fs::remove_file(engine_dir.join(&name));
+                damaged.push(name);
+            }
+        }
+        for f in [&assets::MODEL, &assets::NOTICE] {
+            let path = self.shared.paths.models_dir().join(f.file_name);
+            if !path.is_file() {
+                continue;
+            }
+            if !download::file_sha256(&path).is_ok_and(|h| h == f.sha256) {
+                let _ = std::fs::remove_file(&path);
+                damaged.push(f.file_name.to_string());
+            }
+        }
+        self.shared.changed();
+        Ok(damaged)
+    }
+
+    /// Delete the engine and the model, including partial downloads (frees ~1.1 GB).
+    pub fn remove(&self) -> Result<(), String> {
+        self.cancel_download();
+        self.stop_helper();
+        for dir in [
+            self.shared.paths.engine_dir(),
+            self.shared.paths.models_dir(),
+        ] {
+            if dir.exists() {
+                std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            }
+        }
+        self.shared.changed();
+        Ok(())
+    }
+
+    /// Stop the helper on purpose (no restart); the next request starts it again.
+    fn stop_helper(&self) {
+        let helper = {
+            let mut st = lock(&self.shared.state);
+            st.helper_state = HelperState::Stopped;
+            st.helper_error = None;
+            st.helper.take()
+        };
+        if let Some(h) = helper {
+            h.stop();
+        }
+    }
+
     /// App exit: stop the helper and any download.
     pub fn shutdown(&self) {
         self.shared.shutting_down.store(true, Ordering::SeqCst);
@@ -523,7 +583,7 @@ mod engine_tests {
     fn engine() -> EngineManager {
         let data = std::env::var_os("VERITAS_TEST_ENGINE_DATA")
             .expect("set VERITAS_TEST_ENGINE_DATA to a data folder with the engine and model");
-        let engine = EngineManager::new(AppPaths { data: data.into() }, |_| {});
+        let engine = EngineManager::new(AppPaths::new(data.into()), |_| {});
         let status = engine.status();
         assert!(
             status.engine_installed && status.model_installed,

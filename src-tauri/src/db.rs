@@ -214,6 +214,16 @@ impl Db {
         Ok(())
     }
 
+    /// A track file moved (Settings > Storage, VRT-27).
+    pub async fn set_track_path(&self, id: i64, path: &str) -> Result<()> {
+        sqlx::query("UPDATE tracks SET path = ? WHERE id = ?")
+            .bind(path)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn set_meeting_dir(&self, id: i64, dir: &str) -> Result<()> {
         sqlx::query("UPDATE meetings SET dir = ? WHERE id = ?")
             .bind(dir)

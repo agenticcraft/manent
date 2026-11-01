@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
-import { call, on, type EngineStatus } from "@/lib/ipc";
+import { ChevronDown } from "lucide-react";
+import { call, on, type AppSettings, type EngineStatus } from "@/lib/ipc";
 
 const ITEM_LABEL = { engine: "Engine", model: "Model", notice: "Licences" } as const;
 
@@ -138,6 +139,8 @@ export function TranscriptionSettings() {
         </div>
       )}
 
+      <EngineOptions installed={installed || status.engine_installed} busy={!!dl} />
+
       {shownError && (
         <p role="alert" className="text-sm text-destructive" data-testid="engine-error">
           {shownError}
@@ -165,6 +168,130 @@ export function TranscriptionSettings() {
             </pre>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** The update interval while recording, and engine maintenance (VRT-27). */
+function EngineOptions({ installed, busy }: { installed: boolean; busy: boolean }) {
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  useEffect(() => {
+    call("get_app_settings").then(setSettings, () => {});
+  }, []);
+
+  const act = async (action: () => Promise<string>) => {
+    setResult(null);
+    try {
+      setResult(await action());
+    } catch (e) {
+      setResult(String(e));
+    }
+  };
+
+  const check = () =>
+    act(async () => {
+      setChecking(true);
+      try {
+        const damaged = await call("engine_check");
+        return damaged.length === 0
+          ? "Engine and model are intact."
+          : `Damaged and removed: ${damaged.join(", ")}. Download them again above.`;
+      } finally {
+        setChecking(false);
+      }
+    });
+
+  return (
+    <div className="flex flex-col gap-3" data-testid="engine-options">
+      {settings && (
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <span>
+            Update speakers while recording
+            <span className="block text-xs text-muted-foreground">
+              More often costs more CPU; less often names speakers later. Applies to the next
+              recording.
+            </span>
+          </span>
+          <span className="relative flex items-center">
+            <select
+              value={settings.rolling_interval_s}
+              onChange={(e) => {
+                const seconds = Number(e.target.value);
+                setSettings({ ...settings, rolling_interval_s: seconds });
+                call("set_rolling_interval", { seconds }).catch((err: unknown) =>
+                  setResult(String(err)),
+                );
+              }}
+              className="h-8 appearance-none rounded-md border bg-background pr-8 pl-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              data-testid="rolling-interval"
+            >
+              {settings.rolling_intervals.map((s) => (
+                <option key={s} value={s}>
+                  every {s} s
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2 size-4 text-muted-foreground" />
+          </span>
+        </label>
+      )}
+      {installed && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={check}
+            disabled={checking || busy}
+            data-testid="engine-check"
+          >
+            {checking ? "Checking…" : "Check model"}
+          </Button>
+          {confirmRemove ? (
+            <>
+              <span className="text-xs text-muted-foreground">
+                Remove the engine and model (1.1 GB)? Transcription stops until you download them
+                again.
+              </span>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  setConfirmRemove(false);
+                  act(async () => {
+                    await call("engine_remove");
+                    return "Engine and model removed.";
+                  });
+                }}
+                data-testid="engine-remove-confirm"
+              >
+                Remove
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmRemove(false)}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmRemove(true)}
+              disabled={busy}
+              data-testid="engine-remove"
+            >
+              Remove engine and model
+            </Button>
+          )}
+        </div>
+      )}
+      {result && (
+        <p className="text-sm text-muted-foreground" role="status" data-testid="engine-result">
+          {result}
+        </p>
       )}
     </div>
   );
