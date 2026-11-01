@@ -51,12 +51,16 @@ def wer(ref, hyp):
     return d[-1] / max(len(ref), 1)
 
 
-def vtt_text(path):
-    """Plain text from a YouTube auto-caption VTT (rolling captions de-duplicated)."""
-    lines, last = [], None
+def vtt_text(path, until_s):
+    """Plain text of the cues starting before `until_s` in a YouTube auto-caption VTT."""
+    lines, last, t = [], None, 0.0
     for line in open(path, encoding="utf-8"):
+        m = re.match(r"(\d+):(\d+):([\d.]+) -->", line)
+        if m:
+            t = int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3])
+            continue
         line = re.sub(r"<[^>]+>", "", line).strip()
-        if not line or "-->" in line or line.startswith(("WEBVTT", "Kind:", "Language:")) or line == last:
+        if t >= until_s or not line or line.startswith(("WEBVTT", "Kind:", "Language:")) or line == last:
             continue
         lines.append(line)
         last = line
@@ -98,7 +102,7 @@ text = " ".join(x["text"] for x in sorted(segments, key=lambda x: x["start_ms"])
 labels = sorted({x["label"] for x in segments if x["label"]})
 print(f"     transcript: {len(segments)} blocks, {words} words, speakers {labels}")
 if VTT:
-    ref = norm(vtt_text(VTT))
+    ref = norm(vtt_text(VTT, seconds))
     print(f"     disagreement with the captions: {wer(ref, norm(text)):.1%} over {len(ref)} caption words")
 
 # The meeting screen with the whole transcript.

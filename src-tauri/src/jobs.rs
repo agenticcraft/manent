@@ -47,10 +47,12 @@ enum Work {
 
 /// Finished jobs stay listed (so the UI can show the outcome) until dismissed, up to this many.
 const KEEP_FINISHED: usize = 20;
-/// Transcription plus diarization take about this much of the audio's length, plus a little
-/// startup; used only to show progress. Measured in VRT-35 (release build, 25-40 minutes):
-/// 0.105 for one imported track and for a recording's two tracks alike.
+/// Transcription plus diarization of one track take about this much of the audio's length,
+/// plus a little startup; used only to show progress. Measured in VRT-35 (release build,
+/// 25-40 minutes): 0.105 for an imported track; a recording's two tracks (mic and system,
+/// in parallel) 0.145, so each further track adds about EXTRA_TRACK_RTF.
 const EXPECTED_RTF: f64 = 0.11;
+const EXTRA_TRACK_RTF: f64 = 0.04;
 /// Share of an import's progress bar for decoding (about 45 s of a 280 s job in VRT-35).
 const DECODE_SHARE: f64 = 0.15;
 
@@ -374,7 +376,11 @@ async fn transcribe(s: &Shared, id: u64, meeting_id: i64, base: f64) -> Result<(
     let ticker = {
         let (done, expected) = (
             done.clone(),
-            Duration::from_secs_f64(duration_ms as f64 / 1000.0 * EXPECTED_RTF + 3.0),
+            Duration::from_secs_f64(
+                duration_ms as f64 / 1000.0
+                    * (EXPECTED_RTF + EXTRA_TRACK_RTF * refs.len().saturating_sub(1) as f64)
+                    + 3.0,
+            ),
         );
         let started = Instant::now();
         async move {
