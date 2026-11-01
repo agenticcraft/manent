@@ -3,12 +3,12 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-10-31T21:15:00Z'
+updated_date: '2026-11-01T09:52:00Z'
 ---
 ## 1. Technical foundation
 
 ### 1.1 App shell: Tauri 2 (Rust core with a TypeScript UI)
-- **Why Tauri:** one codebase covers Linux, macOS and Windows, and Tauri 2 also targets iOS and Android for the later mobile step. Installers are small (about 10 MB compared with about 150 MB for Electron). Rust gives low-latency, safe audio threads.
+- **Why Tauri:** one codebase covers Linux, macOS and Windows, and Tauri 2 also targets iOS and Android for the later mobile step. Installers are small: the Linux release binary is 8.8 MB and the deb/rpm 3.9 MB (VRT-29), against about 150 MB for Electron. Rust gives low-latency, safe audio threads.
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS and shadcn/ui.
 - **Backend (Rust):** audio capture, encoding, storage, and managing the transcription engine. It talks to the UI through Tauri commands, which carry requests, and events, which carry streams such as audio levels and transcript segments.
 
@@ -19,18 +19,18 @@ Each **source** is either a mic input or a system-output loopback, and each one 
 |---|---|---|
 | Linux | `cpal` PipeWire host (feature `pipewire`) | `cpal` PipeWire host: an input stream on an output (sink) device sets `stream.capture.sink`, which is loopback |
 | Windows | `cpal` WASAPI | `cpal` WASAPI loopback: an input stream on an output device |
-| macOS | `cpal` CoreAudio | `cpal` CoreAudio loopback (an input stream on an output device, using an aggregate device). Verify the permissions and the minimum macOS version in VRT-12 |
+| macOS | `cpal` CoreAudio | `cpal` CoreAudio loopback on macOS 14.6 and newer (an input stream on an output device; cpal creates a process tap plus an aggregate device). Needs the system-audio capture permission; verified in VRT-12 |
 | Android (later) | AudioRecord | `AudioPlaybackCapture` (MediaProjection), which only works for apps that allow capture |
 | iOS (later) | AVAudioEngine | Not possible because of OS limits, so mic only |
 
 Design:
-- A `trait AudioSource { fn start(tx) ; fn stop() }` with one implementation per platform, chosen with `cfg`. Device enumeration returns a `SourceInfo {id, name, kind: Mic|Loopback}`.
+- A `trait AudioSource` (format, start, stop) implemented by `CpalSource`; platform details (which devices are virtual) live in `cfg` modules. Device enumeration returns a `SourceInfo {id, name, kind: Mic|Loopback, is_default}`.
 - A lock-free ring buffer (`rtrb`) on each source, so the realtime callback never blocks.
 - Two consumers for each source:
-  1. **Recorder:** writes each track to its own file at the native sample rate. It writes **FLAC** while recording and can export to Opus or M4A afterwards. An optional mixdown file is used for playback.
-  2. **ASR feed:** resamples to **16 kHz mono f32** (`rubato`) and sends 20–40 ms chunks to the transcription engine.
+  1. **Recorder:** writes each track to its own **FLAC** file at the native sample rate; on Stop the tracks are mixed into `mix.opus` for playback (§1.5).
+  2. **Live transcription:** each track also feeds a caption worker, which resamples to **16 kHz mono f32** (`rubato`) and cuts 4–8 s chunks for the engine (§1.3).
 - Live level meters (RMS and peak) are sent to the UI at about 20 Hz.
-- **Track alignment:** streams start a few ms apart (about 20 ms measured), so each track stores the timestamp of its first callback (`InputCallbackInfo`) to align the tracks. Over 5 minutes, VRT-1 measured no clock drift between mic and system tracks.
+- **Track alignment:** the streams start about 20 ms apart (VRT-1) and the tracks are not shifted: that is small against the 1 s bleed window and inaudible in the mix. Over 5 minutes VRT-1 measured no clock drift between mic and system tracks. If it ever matters, the first callback's timestamp (`InputCallbackInfo`) can align them.
 - **Key design advantage:** because the mic and system audio are separate tracks, the app already knows that speech on the mic track is the **local user ("Me")**. Diarization therefore only has to separate the remote voices on the system track, which makes the speaker labels much more accurate. **Bleed** (the mic hearing the speakers) is removed by text: a mic block goes when at least half its words match a system-track word (same text within 1 s), otherwise only the matching words go, so the system track wins on overlap while the user's own words, also when talking over someone, stay (`passes.rs`, VRT-17). Headphones avoid the problem entirely.
 
 ### 1.3 Transcription engine: libparakeet (parakeet.cpp) in a helper process
@@ -39,14 +39,14 @@ Design:
 - `parakeet-cpp` is a C++/ggml port of NVIDIA NeMo Parakeet. It runs quantized GGUF models on CPU at upstream accuracy and returns **word-level timestamps**.
 - **Engine decision (VRT-29, decision-1):** no LocalAI. The spikes used LocalAI, but its parakeet-cpp backend is a thin wrapper around `libparakeet.so`, whose C API (`parakeet_capi_*`, ABI v10, header in `spikes/engine/include/`) Veritas calls directly. Same results as through LocalAI (identical WER, diarization and embeddings), faster (RTF 0.064 vs 0.10), 0.6 s to load, 1.9 GB peak on a 17 min file.
 - **Language:** auto only. The language option is ignored by parakeet 0.6B v3 (auto, `nl` and `en` give identical output), so the app has no language setting. Mixed Dutch/English meetings work because each chunk is detected on its own.
-- **Measured** (test machine, CPU): RTF 0.10 for transcription, 0.03 for diarization. Offline WER on spontaneous English meetings 14–20% (AMI, VRT-31); Dutch 11% on read speech (FLEURS) and 8–17% disagreement with YouTube captions on Dutch interviews (VRT-32).
+- **Measured** (test machine, CPU, libparakeet directly, VRT-29): RTF 0.064 for transcription, 0.026 for diarization. Offline WER on spontaneous English meetings 14–20% (AMI, VRT-31); Dutch 11% on read speech (FLEURS) and 8–17% disagreement with YouTube captions on Dutch interviews (VRT-32).
 - **Rejected for live** (VRT-2, VRT-31, VRT-32): `realtime_eou_120m` streaming (English only; 28.9% WER on a real meeting, drops crosstalk, no live speaker segments) and `nemotron-3.5-asr-streaming-0.6b` (32% WER on mixed NL/EN, leaks language tags). LocalAI's realtime WebSocket with `server_vad` waits for pauses, so text lagged up to 34 s on fluent speech.
 - **Licences** (NOTICE-parakeet-bundle-standard.txt): CC-BY-4.0 (ASR, WeSpeaker), OpenMDW-1.1 (diarization: permissive, keep the licence and notices when distributing), MIT (Silero VAD), Apache-2.0 per model card for the sound tagger (upstream licensing inconsistent; Veritas doesn't use it). The app shows the attributions; if the model is ever bundled, the NOTICE file ships with it.
 
 How the app uses it:
 - **Helper process `veritas-engine`** (a small Rust binary in the workspace, the only crate allowed `unsafe`): loads `libparakeet.so` with `libloading`, checks `parakeet_capi_abi_version() == 10`, loads the bundle's components (`parakeet_capi_load_component`: ASR with an empty name, `"vad"`, `"diar"`, `"voice"`) once, and serves requests from the app as JSON lines over stdin/stdout. The app supervises it (start, restart after a crash, stop). A crash or out-of-memory in the engine never stops a recording. No network port, so nothing to bind.
 - **Delivery (downloaded at first run, nothing big in the installer):**
-  - libparakeet from LocalAI's backend images on quay.io (`go-skynet/local-ai-backends`: `cpu-parakeet-cpp` for linux/amd64, `metal-darwin-arm64-parakeet-cpp` for macOS arm64), fetched over the OCI registry API at a pinned digest, every layer checked against its sha256 (`spikes/engine/fetch_backend.py`). 13.8 MB download; only `lib/libparakeet.so` (3.9 MB) is kept, plus `libgomp` where the OS lacks it. Always the CPU variant. **No Windows, macOS Intel or Linux arm64 CPU build exists**: Windows builds parakeet.cpp from source (VRT-11/VRT-23).
+  - libparakeet from LocalAI's backend images on quay.io (`go-skynet/local-ai-backends`: `cpu-parakeet-cpp` for linux/amd64, `metal-darwin-arm64-parakeet-cpp` for macOS arm64), fetched over the OCI registry API at a pinned digest, every layer checked against its sha256 (`engine/download.rs`, pins in `engine/assets.rs`). 13.8 MB download; only `libparakeet.so` (3.9 MB) and `libgomp.so.1` are kept. The image's own glibc and libstdc++ must never be used (the helper then fails on a glibc mismatch); the OS provides them. Always the CPU variant. **No Windows, macOS Intel or Linux arm64 CPU build exists**: Windows builds parakeet.cpp from source (VRT-11/VRT-23).
   - The model `parakeet-bundle-standard.gguf` (1.1 GB) from Hugging Face, with progress, resume and checksum. Own mirror: VRT-33.
 - **C API calls:**
   - Offline and rolling passes: `parakeet_capi_transcribe_path_json_vad_with(asr, vad, wav, 0, NULL)`: words with start/end/confidence. The 0.6B model has no VAD head, so the Silero `"vad"` component cuts long audio (≤ 30 s pieces). The engine writes a 16 kHz WAV for it. **Repair (VRT-17):** within a piece that switches language the model sometimes drops a whole sentence (Dutch-English-Dutch); the helper also runs the Silero VAD (`vad_path_json`) and transcribes speech regions of at least 1 s that got no words again on their own (`transcribe_pcm_batch_json`). On the NL/EN recording this took WER from 14.6% to 10.1%; it changed nothing on AMI. Shorter VAD pieces (`max_segment` 10-25 s) were not a fix: the result depends on where pieces happen to be cut and English meetings got worse.
@@ -66,7 +66,7 @@ How the app uses it:
 - **Jobs (VRT-19, `jobs.rs`):** the final pass, "Re-transcribe" and imports run as background jobs, one at a time (the engine never transcribes two whole meetings at once), with progress for the UI (`jobs:changed`; decoding by position, transcription estimated from the audio length). Jobs live in the app, so they survive navigation; a meeting left `processing` when the app quit is transcribed again at the next start.
 - **Imports:** a file (wav, mp3, m4a/mp4/aac/mov, flac, ogg/vorbis, mkv/webm; decision-3) is decoded by symphonia into the meeting's mono FLAC track `import.flac` at its own rate (one track, kind `loopback`, so every voice is diarized; there is no "Me"), mixed into `mix.opus`, and transcribed like a recording's final pass, so known people are recognised. Import via the Library button (native dialog) or by dropping files on the window. Without the engine installed an import is refused.
 - **Merging:** the app gives each word the speaker of the diarization segment it overlaps most (nearest segment when none overlaps). Diarization almost never assigns speech to the wrong person (0.1–0.3% on AMI, 6.6% in one meeting with a very quiet speaker); produced audio often yields extra tiny speaker slots (< 8 s of clean speech).
-- An `Engine` trait in Rust (`transcribe_chunk`, `transcribe_file`, `speaker_profiles`) hides the helper process. Mobile, which can't run a helper process, can link the same C API in-process later.
+- An `Engine` trait in Rust (`transcribe_chunk`, `transcribe_file`, `transcribe_words`, `speaker_profiles`) hides the helper process. Mobile, which can't run a helper process, can link the same C API in-process later.
 - **Not available without another engine:** LLM summaries (VRT-24) would need a separate local LLM runtime.
 
 ### 1.4 Speaker identity and naming
@@ -79,6 +79,7 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
 - **A meeting's voices (VRT-18):** table `meeting_voices(meeting_id, label, speaker_id, suggested_id, distance, embedding, encoder_id, clean_seconds, confirmed)` holds, per speaker label of a meeting, the cleanest embedding the passes found and who it is. After every rolling pass and the final pass the unconfirmed labels are matched with the decision rule (`speakers.rs`: auto-named, suggested or unnamed) and the segments get the person of their label. The final pass numbers speakers anew; names the user gave during the recording carry over to the label that covers at least half of the named stretches.
 - **Naming a speaker:** when the user clicks an unnamed "Speaker 2" chip and types "Anna" (an existing person if the name matches, ignoring case, else a new one), that speaker's embedding from this meeting becomes a sample for Anna. Every confirmed or corrected name adds a sample, so matching adapts to real mics and rooms over time. Only speakers with at least 5 s of clean speech are used as samples.
 - **Named transcript:** transcription segments get the name (or "Speaker N") of the diarization segment they overlap most. Consecutive segments of the same speaker form one block.
+- **Me:** the mic track's speaker is the user, never diarized and not in the registry; the name shown for them is a setting (`speaker.me_name`, "Me" by default) and can be changed from its chip.
 - Renaming a speaker updates every segment retroactively. Merging speakers (for example "Speaker 1" and "Speaker 3" are the same person) moves their samples to one person. Deleting a person deletes all their samples.
 
 ### 1.5 Storage
@@ -88,7 +89,7 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
   - `segments(id, meeting_id → meetings, track_id → tracks, pass ∈ caption|rolling|final, speaker_id → speakers, speaker_label, start_ms, end_ms, text, words_json)`: the three passes of §1.3; a rolling or final pass atomically replaces the segments of earlier passes in its time window.
   - `speakers(id, name, color)` and `voice_samples(id, speaker_id → speakers, embedding BLOB (LE f32), encoder_id, clean_seconds, meeting_id → meetings, created_at)` (§1.4).
   - `meeting_voices(meeting_id → meetings, label, speaker_id → speakers, suggested_id → speakers, distance, embedding, encoder_id, clean_seconds, confirmed)`: a meeting's speaker labels and who they are (§1.4, migration 0002).
-  - `settings(key, value JSON)`.
+  - `settings(key, value JSON)`: `recording.sources` (Settings > Sources), `speaker.me_name`.
 - Deleting a meeting cascades to its tracks and segments; deleting a person deletes their voice samples (segments stay, unnamed).
 - **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën". Matches come back with a snippet whose matched words are wrapped in U+0001/U+0002 (transcripts can contain brackets); the Library shows them under "In transcripts" and opens the meeting at the match (VRT-20).
 - **Waveform:** `meeting_waveform` computes 600 loudness bars (RMS per bin, loudest track, scaled to the 98th percentile) from the FLAC tracks and caches them as `waveform.json` in the meeting folder once the meeting is done.
@@ -100,22 +101,28 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
 ### 1.6 Project layout
 ```
 veritas/
-  src-tauri/
+  src-tauri/                 # Cargo workspace: the app and the engine helper
     src/
-      main.rs            # thin entry point (calls lib::run)
-      lib.rs             # tauri setup, module wiring, command registration
-      commands.rs        # Tauri commands (kept in sync with src/lib/ipc.ts)
-      audio/             # sources (linux.rs, windows.rs, macos.rs), ring buffer, resampler, recorder
-      engine/            # EngineManager (mod.rs), helper.rs (spawns/supervises veritas-engine), download.rs, assets.rs (pins)
-      speakers.rs        # registry + in-app matching
-      db.rs              # sqlx migrations + queries
-    engine-helper/       # veritas-engine helper crate (workspace member): libparakeet FFI, JSON lines on stdin/stdout
-  src/                   # React UI
-    routes/              # Library, Live, Meeting, Speakers, Settings
-    components/          # Sidebar, PageHeader, EmptyState; later TranscriptView, SpeakerChip, LevelMeter, SourcePicker
-    components/ui/       # shadcn/ui components
-    lib/ipc.ts           # typed wrappers around invoke/listen
-    lib/theme.ts         # follow the OS light/dark preference
-    index.css            # design tokens (doc-3)
-  scripts/               # smoke checks of the real app via tauri-driver (ui-smoke.py, smoke-*.py)
+      main.rs, lib.rs        # entry point; Tauri setup, state, command registration
+      commands.rs            # Tauri commands (kept in sync with src/lib/ipc.ts)
+      audio/                 # capture (cpal), ring buffers, recorder, FLAC, levels, resampler,
+                             # mixdown, import decoding, waveform; linux/windows/macos.rs
+      live.rs                # live captions: per-track chunker and caption workers (VRT-16)
+      rolling.rs, passes.rs  # rolling and final passes; labels, bleed removal (VRT-17)
+      speakers.rs            # registry matching, doc-2 §1.4 decision rule (VRT-18)
+      jobs.rs                # background job queue: final pass, re-transcribe, imports (VRT-19)
+      engine/                # EngineManager, helper client, downloads, pins, transcript types
+      db.rs                  # sqlx queries; migrations/ next to src/
+      media_server.rs        # local playback server for mix.opus
+      paths.rs               # data folders (VERITAS_DATA_DIR override)
+    engine-helper/           # veritas-engine: libparakeet FFI, JSON lines on stdin/stdout
+    tests/fixtures/          # FLEURS speech and format fixtures (see its README)
+  src/                       # React UI
+    routes/                  # Library, Live, Meeting, Speakers, Settings
+    components/              # TranscriptBlocks, SpeakerChip, AudioPlayer, JobsPanel, ...
+    components/ui/           # shadcn/ui components
+    lib/                     # ipc.ts (typed commands/events), transcript.ts, format.ts, theme.ts
+    index.css                # design tokens (doc-3)
+  scripts/                   # smoke checks of the real app via tauri-driver (AGENTS.md)
+  spikes/                    # Phase 0 spikes: audio, LocalAI, engine prototype and header
 ```

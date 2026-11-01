@@ -3,26 +3,26 @@ id: doc-3
 title: UI design
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-10-29T18:44:00Z'
+updated_date: '2026-11-01T09:52:00Z'
 ---
 ## UI design: clean and calm
 
 **Design principles:** calm, document-like and quiet. The transcript is the hero, and controls step back.
 - **Typography:** Inter for the UI, a readable size (15–16 px) with generous line height for transcript text, and tabular numbers for timers.
-- **Color:** neutral greys (zinc) with one accent color. The only strong signal is a soft red pulse while recording. Each speaker gets a muted pastel color. The app has light and dark modes and follows the OS setting.
+- **Color:** neutral greys (zinc) with one accent color. The only strong signal is a soft red pulse while recording. Each named person has a muted pastel color (a filled chip); an unnamed "Speaker N" is an outlined chip with a colored dot, so it never looks like a person who happens to have that color. "Me" is a neutral chip. The app has light and dark modes and follows the OS setting.
 - **Layout:** a thin left sidebar (Library, Speakers, Settings), with plenty of whitespace and no heavy borders. Sections are separated by subtle 1 px dividers or by spacing.
 - **Motion:** minimal. Live words fade in gently, and the view auto-scrolls unless the user scrolls up, in which case a "Jump to live" pill appears.
 
 **Screens:**
-1. **Library:** a searchable list of meetings showing title, date, duration and speaker avatars, plus "New recording" and "Import audio" buttons.
+1. **Library:** a list of meetings showing title, date, duration and speaker avatars, plus "New recording" and "Import audio" buttons (recordings can also be dropped on the window). Imports and transcriptions in progress are listed above the meetings with their progress. The search box filters titles and finds text in every transcript; a match opens the meeting at that moment.
 2. **Live recording:**
    - The top bar shows the editable title, the timer, a source chip for each source with a mini level meter and a mute toggle, and Pause and Stop buttons.
    - The body is the transcript as speaker blocks: a colored name chip, a timestamp, then the text. The current speaker's block is highlighted, and partial text appears in a lighter grey until it is final.
    - Clicking a speaker chip opens a popover to name the speaker or merge them into another.
-3. **Meeting detail:** the same transcript view with a waveform player at the bottom. Clicking a word jumps playback to that point. It offers Export (Markdown, TXT, SRT, JSON) and "Re-transcribe with the high-accuracy model".
+3. **Meeting detail:** the same transcript view with a waveform player that stays at the bottom. Clicking a word (or a block's time) plays from there; the word and block being played are highlighted and the view follows them. It offers "Re-transcribe" (the same model, over the whole recording again) and Export (Markdown, TXT, SRT, JSON; VRT-21).
 4. **Speakers:** known voices with name, color, number of meetings, and Rename, Merge and Delete actions.
 5. **Settings:**
    - **Sources:** choose the mic and the output device to capture, test meters, and an "auto-detect default device" option.
-   - **Transcription:** model status and download (one model for Dutch and English), and the diarization latency setting. No language setting: the language is detected automatically.
+   - **Transcription:** engine and model status, download and model licences (one model for Dutch and English), and how often speaker labels are updated while recording (the rolling pass, VRT-27). No language setting: the model detects the language itself and ignores a requested one (VRT-32, rechecked 2026-11-01).
    - **Shortcuts:** the global hotkey for start/stop and whether the app starts minimized to the tray.
    - **Storage:** location and the format to keep.

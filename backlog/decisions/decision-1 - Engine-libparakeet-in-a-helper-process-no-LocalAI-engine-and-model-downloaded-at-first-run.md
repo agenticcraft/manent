@@ -58,3 +58,9 @@ The test also found one trap. `parakeet_capi_transcribe_and_diarize_json` (speak
 - Upstream risk: parakeet.cpp's API changes fast. The ABI check plus pinned digests contain this, and an ABI bump becomes a deliberate update.
 - Windows needs its own build pipeline for libparakeet.
 
+
+## Later changes
+
+- **Live chunks (VRT-15):** they use the same `transcribe_path_json_vad_with` call on a short WAV file instead of `transcribe_pcm_batch_json`. It is just as fast, and it keeps one request protocol.
+- **Repair (VRT-17):** `transcribe_pcm_batch_json` is used for re-transcribing speech regions the model dropped at a language switch.
+- **libgomp (VRT-14):** `libgomp.so.1` is always kept next to `libparakeet.so`. The image's glibc and libstdc++ are never used, because they break the helper on a glibc mismatch.
