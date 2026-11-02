@@ -7,8 +7,9 @@ import { MeetingRow } from "@/components/MeetingRow";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatDuration } from "@/lib/format";
+import { formatDateTime, formatDuration, meetingTitle } from "@/lib/format";
 import { call, on, type JobView, type MeetingSummary, type SearchHit } from "@/lib/ipc";
+import { cn } from "@/lib/utils";
 
 /** What "Import audio" offers (decision-3: what symphonia reads). */
 const IMPORT_EXTENSIONS = [
@@ -91,7 +92,7 @@ export function Library({
   const visible = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
     if (!meetings || !q) return meetings ?? [];
-    return meetings.filter((m) => (m.title || "Untitled meeting").toLocaleLowerCase().includes(q));
+    return meetings.filter((m) => meetingTitle(m).text.toLocaleLowerCase().includes(q));
   }, [meetings, query]);
 
   const remove = async (id: number) => {
@@ -146,7 +147,7 @@ export function Library({
         </EmptyState>
       )}
       {meetings && meetings.length > 0 && (
-        <div className="max-w-3xl">
+        <div>
           <div className="relative mb-2">
             <Search
               className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
@@ -238,7 +239,26 @@ function TranscriptHits({
           const m = meetings.find((x) => x.id === meetingId);
           return (
             <li key={meetingId} className="rounded-lg border px-3 py-2">
-              <p className="text-sm font-medium">{m?.title || "Untitled meeting"}</p>
+              {m ? (
+                <p className="flex items-baseline justify-between gap-3 text-sm">
+                  <span
+                    className={cn(
+                      "truncate font-medium",
+                      meetingTitle(m).auto && "text-foreground/70",
+                    )}
+                  >
+                    {meetingTitle(m).text}
+                  </span>
+                  <span
+                    className="shrink-0 text-xs text-muted-foreground tabular-nums"
+                    data-testid="hit-meeting-date"
+                  >
+                    {formatDateTime(m.started_at)} · {formatDuration(m.duration_ms)}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-sm font-medium">Meeting</p>
+              )}
               <ul className="mt-1 flex flex-col">
                 {list.slice(0, 3).map((h) => (
                   <li key={h.segment_id}>

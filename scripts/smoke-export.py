@@ -33,10 +33,8 @@ con.close()
 
 s = Session(APP)
 s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 15)
-s.js("const r = [...document.querySelectorAll('[data-testid=meeting-row]')]"
-     ".find(r => r.querySelector('[data-testid=open-meeting]') && r.innerHTML.includes(arguments[0]));"
-     "(r || document.querySelector('[data-testid=meeting-row]')).querySelector('[data-testid=open-meeting]').click()",
-     title or "Untitled meeting")
+s.js("document.querySelector(`[data-testid=meeting-row][data-meeting-id='${arguments[0]}'] [data-testid=open-meeting]`).click()",
+     meeting)
 s.wait_for("return document.querySelector('[data-testid=export]')", 10)
 s.js("document.querySelector('[data-testid=export]').click()")
 items = s.wait_for("return [...document.querySelectorAll('[data-testid=export-menu] [data-format]')].map(b => b.dataset.format)", 3)

@@ -1,6 +1,7 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import { Download } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { useDismiss } from "@/lib/dismiss";
 import { Button } from "@/components/ui/button";
 import { call, type ExportFormat } from "@/lib/ipc";
 
@@ -28,20 +29,14 @@ export function ExportMenu({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(ref, open, close);
 
   const exportAs = async (f: (typeof FORMATS)[number]) => {
     setOpen(false);
     try {
       // File names: the title without characters that file systems refuse.
-      const base = (title || "Untitled meeting").replace(/[\\/:*?"<>|]+/g, " ").trim();
+      const base = title.replace(/[\\/:*?"<>|]+/g, " ").trim();
       const path = await save({
         title: "Export transcript",
         defaultPath: `${base}.${f.format}`,

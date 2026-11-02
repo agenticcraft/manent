@@ -115,6 +115,24 @@ export function AudioPlayer({
     else el.pause();
   };
 
+  // Space plays and pauses (VRT-42), unless typing or a control has the focus (a focused
+  // button already handles Space itself).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, button, [contenteditable=true], [role=menu]"))
+        return;
+      const el = audio.current;
+      if (!el) return;
+      e.preventDefault();
+      if (el.paused) el.play().catch((err: unknown) => setError(String(err)));
+      else el.pause();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const fraction = duration > 0 ? Math.min(1, time / duration) : 0;
 
   return (

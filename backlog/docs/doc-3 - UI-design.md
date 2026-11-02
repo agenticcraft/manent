@@ -3,7 +3,7 @@ id: doc-3
 title: UI design
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-11-01T09:52:00Z'
+updated_date: '2026-11-02T17:28:00Z'
 ---
 ## UI design: clean and calm
 
@@ -12,14 +12,18 @@ updated_date: '2026-11-01T09:52:00Z'
 - **Color:** neutral greys (zinc) with one accent color. The only strong signal is a soft red pulse while recording. Each named person has a muted pastel color (a filled chip); an unnamed "Speaker N" is an outlined chip with a colored dot, so it never looks like a person who happens to have that color. "Me" is a neutral chip. The app has light and dark modes and follows the OS setting.
 - **Layout:** a thin left sidebar (Library, Speakers, Settings), with plenty of whitespace and no heavy borders. Sections are separated by subtle 1 px dividers or by spacing.
 - **Motion:** minimal. Live words fade in gently, and the view auto-scrolls unless the user scrolls up, in which case a "Jump to live" pill appears.
+- **One column (VRT-42):** every screen uses the same content column, `max-w-3xl`, centred in the window. The page header's actions line up with the content below them. Transcript blocks reach into the gutter (`-mx-3`), so their text lines up with the title and the player while the highlight still has room.
+- **Buttons:** one size per context. Settings and page headers use `sm`. The single main action of a screen is filled: Stop while recording, Download for the engine. "New recording" uses the accent. Secondary actions are outline buttons. Destructive actions start quiet (muted text, red on hover) and ask for confirmation.
+- **Keyboard:** Space plays and pauses in the meeting view, unless a text field or button has the focus. Esc and a press outside close every popover and menu. Every control shows a visible focus outline (a base rule; components with their own ring keep it).
+- **Untitled meetings** are shown by when they were held, e.g. "Sunday evening meeting", in slightly muted text, until the user gives a title. Nothing is stored, and the Live screen shows it as the title placeholder. Exports and `transcript.md` (Rust) still say "Untitled meeting".
 
 **Screens:**
-1. **Library:** a list of meetings showing title, date, duration and speaker avatars, plus "New recording" and "Import audio" buttons (recordings can also be dropped on the window). Imports and transcriptions in progress are listed above the meetings with their progress. The search box filters titles and finds text in every transcript; a match opens the meeting at that moment.
+1. **Library:** a list of meetings showing title, date, duration and speaker avatars, plus "New recording" and "Import audio" buttons (recordings can also be dropped on the window). Imports and transcriptions in progress are listed above the meetings with their progress. The search box filters titles and finds text in every transcript; matches are grouped per meeting with its date and length, and a match opens the meeting at that moment.
 2. **Live recording:**
    - The top bar shows the editable title, the timer, a source chip for each source with a mini level meter and a mute toggle, and Pause and Stop buttons.
    - The body is the transcript as speaker blocks: a colored name chip, a timestamp, then the text. The current speaker's block is highlighted, and partial text appears in a lighter grey until it is final.
    - Clicking a speaker chip opens a popover to name the speaker or merge them into another.
-3. **Meeting detail:** the same transcript view with a waveform player that stays at the bottom. Clicking a word (or a block's time) plays from there; the word and block being played are highlighted and the view follows them. It offers "Re-transcribe" (the same model, over the whole recording again) and Export (Markdown, TXT, SRT, JSON; VRT-21).
+3. **Meeting detail:** under the title, who took part with their share of the talking (`<1%` for a word or two); clicking a name cues their first turn. Turns of up to 60 characters sit on one line with their speaker chip, so a quick exchange doesn't read as a column of headers. The same transcript view with a waveform player that stays at the bottom. Clicking a word (or a block's time) plays from there; the word and block being played are highlighted and the view follows them. It offers "Re-transcribe" (the same model, over the whole recording again) and Export (Markdown, TXT, SRT, JSON; VRT-21).
 4. **Speakers:** known voices with name, color, number of meetings, and Rename, Merge and Delete actions.
 5. **Settings:**
    - **Sources:** choose the mic and the output device to capture, test meters, and an "auto-detect default device" option.

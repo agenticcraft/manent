@@ -130,12 +130,14 @@ export default function App() {
         }
       />
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-10 py-8">
-        {dropError && (
-          <p role="alert" className="mb-4 text-sm text-destructive" data-testid="drop-error">
-            {dropError}
-          </p>
-        )}
-        {content}
+        <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-1 flex-col">
+          {dropError && (
+            <p role="alert" className="mb-4 text-sm text-destructive" data-testid="drop-error">
+              {dropError}
+            </p>
+          )}
+          {content}
+        </div>
       </main>
       {dragging && (
         <div

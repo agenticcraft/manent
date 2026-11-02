@@ -2,9 +2,10 @@ import { ArrowLeft, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioPlayer, type PlayerHandle } from "@/components/AudioPlayer";
 import { ExportMenu } from "@/components/ExportMenu";
+import { MeetingSpeakers } from "@/components/MeetingSpeakers";
 import { TranscriptBlocks } from "@/components/TranscriptBlocks";
 import { Button } from "@/components/ui/button";
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { formatDateTime, formatDuration, meetingTitle } from "@/lib/format";
 import {
   call,
   on,
@@ -97,7 +98,7 @@ export function Meeting({
   };
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <div>
         <Button variant="ghost" size="sm" className="-ml-2" onClick={onBack} data-testid="back">
           <ArrowLeft /> Library
@@ -114,11 +115,24 @@ export function Meeting({
           <header className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-xl font-semibold tracking-tight" data-testid="meeting-heading">
-                {meeting.title || "Untitled meeting"}
+                {meetingTitle(meeting).text}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground tabular-nums">
                 {formatDateTime(meeting.started_at)} · {formatDuration(meeting.duration_ms)}
               </p>
+              <MeetingSpeakers
+                segments={segments}
+                voices={voices}
+                meName={meName}
+                onJump={(ms) => {
+                  // To their first turn: in view and cued in the player (not playing).
+                  document
+                    .querySelector(`[data-block-start="${ms}"]`)
+                    ?.scrollIntoView({ block: "center", behavior: "smooth" });
+                  player.current?.seek(ms);
+                  setCurrentMs(ms);
+                }}
+              />
               {meeting.interrupted && (
                 <p
                   className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"
@@ -134,7 +148,7 @@ export function Meeting({
             <div className="flex gap-2">
               <ExportMenu
                 meetingId={id}
-                title={meeting.title}
+                title={meetingTitle(meeting).text}
                 dateLabel={formatDateTime(meeting.started_at)}
                 disabled={segments.length === 0}
                 onError={setError}

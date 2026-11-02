@@ -76,6 +76,40 @@ s.js("document.documentElement.classList.remove('dark')")
 time.sleep(0.5)
 s.screenshot(OUT / "meeting-playing-light.png")
 s.js("document.querySelector('[data-testid=play-toggle]').click()")
+time.sleep(0.5)
+
+
+def press(key):
+    """A real key press through WebDriver (not a synthetic DOM event)."""
+    s._wd("POST", f"{s.base}/actions", {"actions": [{"type": "key", "id": "kb", "actions": [
+        {"type": "keyDown", "value": key}, {"type": "keyUp", "value": key}]}]})
+    s._wd("DELETE", f"{s.base}/actions")
+
+
+# Keyboard (VRT-42): Space plays and pauses (focus on the page, not a control).
+s.js("document.activeElement && document.activeElement.blur()")
+paused = lambda: s.js("return document.querySelector('[data-testid=audio]').paused")  # noqa: E731
+was = paused()
+press(" ")
+time.sleep(0.6)
+s.check(paused() != was, f"Space toggles playback (paused {was} -> {paused()})")
+press(" ")
+time.sleep(0.6)
+s.check(paused() == was, "Space toggles it back")
+# Esc closes the speaker popover and the Export menu.
+s.js("document.querySelector('[data-testid=speaker-chip]').click()")
+time.sleep(0.3)
+opened = s.js("return document.querySelector('[data-testid=speaker-chip][aria-expanded=true]') !== null")
+press("\ue00c")  # Escape
+time.sleep(0.3)
+closed = s.js("return document.querySelector('[data-testid=speaker-chip][aria-expanded=true]') === null")
+s.check(opened and closed, f"Esc closes the speaker popover (opened {opened}, closed {closed})")
+s.js("document.querySelector('[data-testid=export]').click()")
+time.sleep(0.3)
+menu = s.js("return !!document.querySelector('[data-testid=export-menu]')")
+press("\ue00c")
+time.sleep(0.3)
+s.check(menu and not s.js("return !!document.querySelector('[data-testid=export-menu]')"), "Esc closes the Export menu")
 s.close()
 print(f"\n{'PASS' if not s.failures else 'FAILED: ' + '; '.join(s.failures)}; screenshots in {OUT}")
 sys.exit(1 if s.failures else 0)

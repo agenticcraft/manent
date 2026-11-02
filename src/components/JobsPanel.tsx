@@ -21,11 +21,7 @@ export function JobsPanel({
 }) {
   if (jobs.length === 0) return null;
   return (
-    <ul
-      className="mb-4 flex max-w-3xl flex-col gap-2"
-      aria-label="Transcription jobs"
-      data-testid="jobs"
-    >
+    <ul className="mb-4 flex flex-col gap-2" aria-label="Transcription jobs" data-testid="jobs">
       {jobs.map((j) => {
         const finished = j.stage === "done" || j.stage === "failed";
         return (

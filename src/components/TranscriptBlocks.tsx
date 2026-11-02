@@ -5,6 +5,13 @@ import { formatDuration } from "@/lib/format";
 import type { Gap, TranscriptSegment, VoiceView } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
+/** Turns up to this many characters are shown on one line with their speaker. */
+const SHORT_TURN_CHARS = 60;
+
+function blockText(b: Block): string {
+  return b.segments.map((s) => s.text.trim()).join(" ");
+}
+
 /** A new block starts when the speaker changes or after a pause this long. */
 const BLOCK_GAP_MS = 1500;
 
@@ -132,11 +139,15 @@ export function TranscriptBlocks({
   }, [focusMs, blocks]);
 
   return (
-    <div ref={root} className="flex max-w-3xl flex-col gap-3 pb-6">
+    <div ref={root} className="-mx-3 flex flex-col gap-3 pb-6">
       {blocks.map((b, i) => {
         // Live: the newest block. Meeting: set on the DOM with the playing word (above).
         const current = highlightLast && i === blocks.length - 1;
         const caption = b.label === null;
+        // A short turn ("Ja.", "Klopt.") sits on one line with its speaker, so a quick
+        // exchange doesn't read as a column of headers (VRT-42).
+        // Not the live block that is still growing: it would jump between the two layouts.
+        const short = !current && blockText(b).length <= SHORT_TURN_CHARS;
         const prev = i === 0 ? -Infinity : blocks[i - 1].start_ms;
         const before = gaps.filter((g) => g.at_ms > prev && g.at_ms <= b.start_ms);
         return (
@@ -146,8 +157,12 @@ export function TranscriptBlocks({
             ))}
             <article
               className={cn(
-                "flex flex-col gap-1 rounded-lg px-3 py-2 transition-colors duration-500 data-[current=true]:bg-muted/60",
+                "rounded-lg px-3 transition-colors duration-500 data-[current=true]:bg-muted/60",
+                short
+                  ? "flex flex-wrap items-center gap-x-3 gap-y-1 py-1"
+                  : "flex flex-col gap-1 py-2",
               )}
+              data-short={short || undefined}
               data-testid="caption-block"
               data-kind={b.kind}
               data-label={b.label ?? ""}

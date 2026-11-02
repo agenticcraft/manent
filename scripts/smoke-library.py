@@ -6,6 +6,7 @@ tauri-driver must run with VERITAS_DATA_DIR=<data dir> (an empty temp folder), s
 never touches real data. The script starts the app once (creates + migrates the DB), seeds
 meetings with speakers and audio folders, restarts the app and checks the Library.
 """
+import re
 import sqlite3
 import sys
 import time
@@ -32,7 +33,9 @@ con.execute("PRAGMA foreign_keys = ON")
 meetings = [
     ("Weekly planning", 1_790_000_000_000, 3_725_000, "done"),
     ("Klantgesprek Acme", 1_793_000_000_000, 1_830_000, "done"),
-    ("", 1_791_500_000_000, 42_000, "processing"),
+    # 'failed': a status startup leaves alone ('processing' is re-queued since VRT-19 and
+    # 'recording' recovered since VRT-41).
+    ("", 1_791_500_000_000, 42_000, "failed"),
 ]
 ids = {}
 for title, started, dur, status in meetings:
@@ -61,11 +64,13 @@ s = Session(APP)
 s.failures = failures
 rows = s.wait_for("return document.querySelectorAll('[data-testid=meeting-row]').length === 3 && true")
 titles = s.js("return [...document.querySelectorAll('[data-testid=meeting-title]')].map(e => e.textContent)")
-s.check(titles == ["Klantgesprek Acme", "Untitled meeting", "Weekly planning"], f"newest first: {titles}")
+# A meeting without a title is named after when it was held, e.g. "Monday morning meeting" (VRT-42).
+s.check(len(titles) == 3 and titles[0] == "Klantgesprek Acme" and titles[2] == "Weekly planning"
+        and re.fullmatch(r"\w+ (morning|afternoon|evening|night) meeting", titles[1]), f"newest first: {titles}")
 row_text = s.js("return [...document.querySelectorAll('[data-testid=meeting-row]')].map(e => e.innerText.replace(/\\s+/g, ' '))")
 print("     rows:", row_text)
 s.check("1:02:05" in row_text[2] and "30:30" in row_text[0], "durations formatted (1:02:05, 30:30)")
-s.check("Processing" in row_text[1], "status shown when not done")
+s.check("Failed" in row_text[1], "status shown when not done")
 avatars = s.js("return [...document.querySelectorAll('[data-testid=meeting-row]')[0].querySelectorAll('[aria-label=Speakers] span')].map(e => e.title + '=' + e.textContent)")
 s.check(avatars == ["Anna de Vries=AD", "Bram Jansen=BJ"], f"speaker avatars: {avatars}")
 

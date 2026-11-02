@@ -1,5 +1,6 @@
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useDismiss } from "@/lib/dismiss";
 import { Button } from "@/components/ui/button";
 import { speakerBg } from "@/lib/format";
 import { call, type Person, type SourceKind, type VoiceView } from "@/lib/ipc";
@@ -82,6 +83,9 @@ export function SpeakerChip({
             ? cn(speakerBg(person.color), "hover:opacity-80")
             : "inline-flex items-center gap-1.5 border border-border hover:bg-muted",
         )}
+        // While open, the press on the chip itself closes it (via onClick), not the outside
+        // press handler too, which would close and then reopen it.
+        onPointerDown={(e) => open && e.stopPropagation()}
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         data-testid="speaker-chip"
@@ -134,12 +138,8 @@ function SpeakerPopover({
     call("list_people").then(setPeople, () => {});
     // The chip can sit at the edge of the scrolling transcript: show the whole popover.
     ref.current?.scrollIntoView({ block: "nearest" });
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [onClose]);
+  }, []);
+  useDismiss(ref, true, onClose);
 
   const run = async (action: () => Promise<unknown>) => {
     setError(null);

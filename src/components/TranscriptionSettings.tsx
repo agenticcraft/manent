@@ -68,7 +68,11 @@ export function TranscriptionSettings() {
               One-time download: engine and model, {formatBytes(status.download_size)}.
             </p>
           </div>
-          <Button onClick={() => run(() => call("engine_download"))} data-testid="engine-download">
+          <Button
+            size="sm"
+            onClick={() => run(() => call("engine_download"))}
+            data-testid="engine-download"
+          >
             Download
           </Button>
         </div>
@@ -129,6 +133,7 @@ export function TranscriptionSettings() {
           {status.helper !== "ready" && (
             <Button
               variant="outline"
+              size="sm"
               disabled={status.helper === "starting" || status.helper === "restarting"}
               onClick={() => run(() => call("engine_start").then(setStatus))}
               data-testid="engine-start"
@@ -279,6 +284,7 @@ function EngineOptions({ installed, busy }: { installed: boolean; busy: boolean 
             <Button
               variant="ghost"
               size="sm"
+              className="text-muted-foreground hover:text-destructive"
               onClick={() => setConfirmRemove(true)}
               disabled={busy}
               data-testid="engine-remove"

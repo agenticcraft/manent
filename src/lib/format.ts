@@ -17,6 +17,24 @@ export function formatDateTime(epochMs: number): string {
   );
 }
 
+/**
+ * A meeting's title, or for one without a title a name from when it was held, e.g. "Sunday
+ * evening meeting" (VRT-42); `auto` tells which, so screens can show it more quietly.
+ */
+export function meetingTitle(m: { title: string; started_at: number }): {
+  text: string;
+  auto: boolean;
+} {
+  const title = m.title.trim();
+  if (title) return { text: title, auto: false };
+  const d = new Date(m.started_at);
+  const day = new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(d);
+  const h = d.getHours();
+  const part =
+    h < 5 ? "night" : h < 12 ? "morning" : h < 17 ? "afternoon" : h < 22 ? "evening" : "night";
+  return { text: `${day} ${part} meeting`, auto: true };
+}
+
 /** Up to two initials from a name: "Bram Jansen" -> "BJ", "anna" -> "A". */
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

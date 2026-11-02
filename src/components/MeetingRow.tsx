@@ -1,7 +1,7 @@
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { formatDateTime, formatDuration, initials, speakerBg } from "@/lib/format";
+import { formatDateTime, formatDuration, initials, meetingTitle, speakerBg } from "@/lib/format";
 import type { MeetingSummary } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
@@ -41,8 +41,14 @@ export function MeetingRow({
         data-testid="open-meeting"
       >
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium" data-testid="meeting-title">
-            {meeting.title || "Untitled meeting"}
+          <span
+            className={cn(
+              "truncate text-sm font-medium",
+              meetingTitle(meeting).auto && "text-foreground/70",
+            )}
+            data-testid="meeting-title"
+          >
+            {meetingTitle(meeting).text}
           </span>
           {status && (
             <span

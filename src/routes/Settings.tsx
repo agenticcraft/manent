@@ -35,7 +35,7 @@ export function Settings() {
   return (
     <>
       <PageHeader title="Settings" />
-      <div className="flex max-w-2xl flex-col divide-y divide-border">
+      <div className="flex flex-col divide-y divide-border">
         {SECTIONS.map((s) => (
           <section key={s.title} className="py-5 first:pt-0">
             <h2 className="text-sm font-medium">{s.title}</h2>

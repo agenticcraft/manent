@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { LiveTranscript } from "@/components/LiveTranscript";
 import { SourceChip } from "@/components/SourceChip";
 import { Button } from "@/components/ui/button";
-import { formatDuration } from "@/lib/format";
+import { formatDuration, meetingTitle } from "@/lib/format";
 import { call, on, type RecordingStarted } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
@@ -113,7 +113,7 @@ export function Live({ session, onStopped }: { session: RecordingStarted; onStop
           onChange={(e) => setTitle(e.target.value)}
           onBlur={saveTitle}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-          placeholder="Untitled meeting"
+          placeholder={meetingTitle({ title: "", started_at: session.started_at }).text}
           aria-label="Meeting title"
           className="min-w-0 flex-1 bg-transparent text-xl font-semibold tracking-tight outline-none placeholder:text-muted-foreground/60"
           data-testid="meeting-title-input"
@@ -128,7 +128,7 @@ export function Live({ session, onStopped }: { session: RecordingStarted; onStop
         <Button variant="outline" size="sm" onClick={togglePause} data-testid="pause-toggle">
           {paused ? <Play /> : <Pause />} {paused ? "Resume" : "Pause"}
         </Button>
-        <Button size="sm" variant="secondary" onClick={stop} disabled={busy} data-testid="stop">
+        <Button size="sm" onClick={stop} disabled={busy} data-testid="stop">
           <Square className="fill-current" /> Stop
         </Button>
       </header>

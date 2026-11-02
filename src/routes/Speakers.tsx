@@ -46,7 +46,7 @@ export function Speakers() {
         </EmptyState>
       )}
       {people && people.length > 0 && (
-        <div className="flex max-w-2xl flex-col divide-y divide-border" data-testid="people">
+        <div className="flex flex-col divide-y divide-border" data-testid="people">
           {people.map((p) => (
             <PersonRow
               key={`${p.id}-${p.name}`}

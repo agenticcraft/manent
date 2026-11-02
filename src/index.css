@@ -171,6 +171,12 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Visible keyboard focus on every control (VRT-42); components with their own focus ring
+     (outline-none + ring) keep theirs, since utilities come after this layer. */
+  :where(button, a, select, [role="menuitem"], [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {
