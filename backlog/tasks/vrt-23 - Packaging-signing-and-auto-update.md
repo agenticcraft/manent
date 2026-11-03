@@ -4,7 +4,7 @@ title: Packaging, signing and auto-update
 status: To Do
 assignee: []
 created_date: 2026-10-29 12:17
-updated_date: '2026-11-01T09:53:00Z'
+updated_date: '2026-11-03T20:13:00Z'
 labels:
   - release
 milestone: m-3
@@ -29,4 +29,5 @@ Produce installers for Linux (AppImage/rpm/deb), Windows (MSI/NSIS) and macOS (d
 - [ ] #2 macOS build signed and notarized
 - [ ] #3 Auto-update works from one release to the next
 - [ ] #4 Windows libparakeet built from source (parakeet.cpp, CMake) and served as a verified download
+- [ ] #5 Packaged build checked in the app switcher and launcher: the Manent icon from the .desktop file (VRT-43)
 <!-- AC:END -->

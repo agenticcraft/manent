@@ -39,7 +39,27 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
     app.manage(TrayToggle(toggle));
+    #[cfg(target_os = "linux")]
+    republish_menu(app.clone(), menu);
     Ok(())
+}
+
+/// GNOME's AppIndicator extension (v60 on GNOME 50) has a race: the menu's first
+/// "LayoutUpdated", sent right as the tray registers, arrives before the extension's D-Bus
+/// proxy is set up; it fails ("Invalid value 'undefined' for property parent") and never asks
+/// for the menu again, so the menu shows empty. Setting the menu once more, after the
+/// extension has settled, sends a new "LayoutUpdated" that it handles (VRT-43).
+#[cfg(target_os = "linux")]
+fn republish_menu(app: AppHandle, menu: Menu<tauri::Wry>) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(tray) = handle.tray_by_id(ID) {
+                let _ = tray.set_menu(Some(menu));
+            }
+        });
+    });
 }
 
 /// Show whether a recording runs: icon, tooltip and the menu's toggle.

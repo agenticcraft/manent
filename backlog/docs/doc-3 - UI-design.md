@@ -3,7 +3,7 @@ id: doc-3
 title: UI design
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-11-02T17:28:00Z'
+updated_date: '2026-11-03T19:57:00Z'
 ---
 ## UI design: clean and calm
 
@@ -12,6 +12,7 @@ updated_date: '2026-11-02T17:28:00Z'
 - **Color:** neutral greys (zinc) with one accent color. The only strong signal is a soft red pulse while recording. Each named person has a muted pastel color (a filled chip); an unnamed "Speaker N" is an outlined chip with a colored dot, so it never looks like a person who happens to have that color. "Me" is a neutral chip. The app has light and dark modes and follows the OS setting.
 - **Layout:** a thin left sidebar (Library, Speakers, Settings), with plenty of whitespace and no heavy borders. Sections are separated by subtle 1 px dividers or by spacing.
 - **Motion:** minimal. Live words fade in gently, and the view auto-scrolls unless the user scrolls up, in which case a "Jump to live" pill appears.
+- **Icon (VRT-43):** an "M" drawn as one continuous line, which is also a sound wave with two peaks, in white on a rounded tile in the accent colour (indigo `#4f39f6`). Chosen over a "waveform into text lines" mark and a speech bubble: it is the calmest, and it stays readable at 16 px. The tray uses the same tile; while recording, a red dot with a white ring sits at the bottom right. The source SVGs are in `src-tauri/icons/source/`; the other sizes come from `npx tauri icon`.
 - **One column (VRT-42):** every screen uses the same content column, `max-w-3xl`, centred in the window. The page header's actions line up with the content below them. Transcript blocks reach into the gutter (`-mx-3`), so their text lines up with the title and the player while the highlight still has room.
 - **Buttons:** one size per context. Settings and page headers use `sm`. The single main action of a screen is filled: Stop while recording, Download for the engine. "New recording" uses the accent. Secondary actions are outline buttons. Destructive actions start quiet (muted text, red on hover) and ask for confirmation.
 - **Keyboard:** Space plays and pauses in the meeting view, unless a text field or button has the focus. Esc and a press outside close every popover and menu. Every control shows a visible focus outline (a base rule; components with their own ring keep it).
