@@ -2,11 +2,11 @@
 
 Usage: python3 scripts/smoke-tray.py <app binary> <data dir> <screenshot dir>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (audio hardware for the recording). The
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (audio hardware for the recording). The
 tray menu is driven over D-Bus (com.canonical.dbusmenu, as the panel does): "Start recording"
 starts a recording and the window follows; the icon and the menu show it; the window's own Stop
 button updates the tray; "Stop recording" stops one started in the window; closing the window
-while recording hides it and the recording goes on; "Show Veritas" brings it back.
+while recording hides it and the recording goes on; "Show Manent" brings it back.
 """
 import json
 import sqlite3
@@ -80,7 +80,7 @@ s.wait_for("return document.querySelector('[data-testid=new-recording]')", 15)
 bus = None
 wait_until(lambda: (globals().__setitem__("bus", tray_bus()) or bus) is not None, 10)
 s.check(bus is not None, f"tray registered on the session bus ({bus})")
-s.check(set(menu(bus)) == {"Start recording", "Show Veritas", "Quit Veritas"}, f"menu: {sorted(menu(bus))}")
+s.check(set(menu(bus)) == {"Start recording", "Show Manent", "Quit Manent"}, f"menu: {sorted(menu(bus))}")
 idle_icon = icon(bus)
 
 # Start from the tray: the window follows and the tray shows it.
@@ -113,7 +113,7 @@ s.check(wait_until(lambda: s.invoke("get_meeting", {"id": meeting})["title"] == 
         "a title being typed is kept when the tray stops the recording")
 s.screenshot(OUT / "tray-after-stop.png")
 
-# Closing the window while recording hides it; the recording goes on; "Show Veritas" brings
+# Closing the window while recording hides it; the recording goes on; "Show Manent" brings
 # it back. The close is asked like the title bar button does (_NET_CLOSE_WINDOW via wmctrl), so
 # this part needs the app on X11: start tauri-driver with GDK_BACKEND=x11. (WebDriver's own
 # Close Window destroys the webview directly, which is not what a user does.)
@@ -134,21 +134,21 @@ if app_windows():
     alive = bool(subprocess.run(["pgrep", "-x", Path(APP).name], capture_output=True).stdout)
     s.check(hidden and alive and s.invoke("current_recording") is not None,
             "closing the window hides it; the app and the recording keep running")
-    click(bus, "Show Veritas")
-    s.check(wait_until(lambda: bool(app_windows()), 5), "'Show Veritas' brings the window back")
+    click(bus, "Show Manent")
+    s.check(wait_until(lambda: bool(app_windows()), 5), "'Show Manent' brings the window back")
 else:
     print("     (window close not checked: the app is not on X11; see the comment above)")
 time.sleep(1)
 
 # Quit while recording: the recording is finished first (complete files, then the final pass).
-click(bus, "Quit Veritas")
+click(bus, "Quit Manent")
 gone = wait_until(lambda: not subprocess.run(["pgrep", "-x", Path(APP).name], capture_output=True).stdout, 30)
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 status, duration = con.execute("SELECT status, duration_ms FROM meetings WHERE id = ?", (meeting,)).fetchone()
 seconds = [x for (x,) in con.execute("SELECT seconds FROM tracks WHERE meeting_id = ?", (meeting,))]
 con.close()
 s.check(gone and status in ("processing", "done") and duration > 1000 and seconds and all(x > 1 for x in seconds),
-        f"'Quit Veritas' finishes the recording first ({status}, {duration} ms, tracks {seconds})")
+        f"'Quit Manent' finishes the recording first ({status}, {duration} ms, tracks {seconds})")
 try:
     s.close()
 except RuntimeError:

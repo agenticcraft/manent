@@ -1,5 +1,5 @@
 ---
-veritas: 1
+manent: 1
 id: 42
 title: "Kwartaaloverleg \"Q4\": budget"
 started_at: "2026-10-31T13:05:00Z"

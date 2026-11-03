@@ -224,7 +224,7 @@ function SpeakerPopover({
         </div>
       )}
       <p className="text-xs text-muted-foreground">
-        Naming keeps a voice sample on this computer, so Veritas recognizes this person in later
+        Naming keeps a voice sample on this computer, so Manent recognizes this person in later
         meetings.
       </p>
       {error && (

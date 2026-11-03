@@ -3,7 +3,7 @@ and the engine.
 
 Usage: python3 scripts/smoke-recover.py <app binary> <data dir> <screenshot dir> <speech.wav>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (engine and model downloaded). Records
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (engine and model downloaded). Records
 while the WAV plays (60% volume; use a loudness-normalised file), kills the app with SIGKILL
 after 20 s, and starts it again: the meeting must be recovered (tracks repaired, playback file,
 duration), transcribed, and show that it was interrupted. Meetings left in 'recording' by
@@ -41,7 +41,7 @@ try:
 except RuntimeError:
     pass  # the app is gone
 
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 cut_off = [m for (m,) in con.execute("SELECT id FROM meetings WHERE status = 'recording'")]
 con.close()
 s.check(meeting in cut_off, f"killed during a recording: meetings left in 'recording': {cut_off}")
@@ -56,7 +56,7 @@ while time.time() < end and any(j["stage"] not in ("done", "failed") for j in s.
 failed = [j for j in s.invoke("list_jobs") if j["stage"] == "failed"]
 s.check(not failed, f"recovery jobs finished ({failed})")
 
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 for m in cut_off:
     row = con.execute("SELECT status, duration_ms, interrupted, dir FROM meetings WHERE id = ?", (m,)).fetchone()
     if row is None:

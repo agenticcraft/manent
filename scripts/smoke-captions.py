@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-captions.py <app binary> <data dir> <screenshot dir> <speech.wav>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir>, a temp folder in which the engine and
+tauri-driver must run with MANENT_DATA_DIR=<data dir>, a temp folder in which the engine and
 model are already downloaded (e.g. by scripts/smoke-engine.py). The WAV is played on the
 default output (at 60% volume, so use a loudness-normalised file) during a recording; if `<speech>.truth.json` exists (segments with start, end,
 lang, text; e.g. spikes/localai/samples/meeting-nl-en.wav) the system-audio captions are
@@ -98,7 +98,7 @@ s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 30)
 time.sleep(3)  # the last chunk is transcribed after Stop (the final pass runs on)
 s.close()
 
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 tracks = dict(con.execute("SELECT id, source_kind FROM tracks WHERE meeting_id = ?", (meeting,)).fetchall())
 stored = con.execute("SELECT track_id FROM segments WHERE meeting_id = ?", (meeting,)).fetchall()
 con.close()

@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-transcript.py <app binary> <data dir> <screenshot dir> <query>=<expected word> ...
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir>, a folder with transcribed meetings
+tauri-driver must run with MANENT_DATA_DIR=<data dir>, a folder with transcribed meetings
 (e.g. after smoke-import.py). For each query (typed in the Library search, e.g.
 "technologieen=technologieën" to check that diacritics are ignored) a transcript match must
 appear, highlighting the expected word; the first match opens its meeting at that moment.

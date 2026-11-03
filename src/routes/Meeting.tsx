@@ -140,7 +140,7 @@ export function Meeting({
                   data-testid="interrupted-note"
                 >
                   <TriangleAlert className="size-3.5" aria-hidden />
-                  Veritas quit unexpectedly during this recording. Everything up to{" "}
+                  Manent quit unexpectedly during this recording. Everything up to{" "}
                   {formatDuration(meeting.duration_ms)} was recovered.
                 </p>
               )}

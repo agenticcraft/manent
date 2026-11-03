@@ -3,7 +3,7 @@
 Usage: python3 scripts/measure-import.py <app binary> <data dir> <screenshot dir> <audio file> [<captions.vtt>]
 (MEETING=<id> skips the import and measures that meeting.)
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (with the engine and model). Imports the
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (with the engine and model). Imports the
 file and, while the job runs, samples the resident memory of the app and the engine helper
 every 2 s. Then reports the job time against the audio length, the word disagreement with the
 captions (YouTube auto-captions are ASR output themselves: a rough reference), and the meeting
@@ -82,7 +82,7 @@ else:
     while True:
         job = next(j for j in s.invoke("list_jobs") if j["id"] == job_id)
         app_rss, _ = rss_mb(Path(APP).name)
-        helper_rss, helper_hwm = rss_mb("veritas-engine")
+        helper_rss, helper_hwm = rss_mb("manent-engine")
         peak_app, peak_helper = max(peak_app, app_rss), max(peak_helper, helper_hwm)
         samples.append((round(time.time() - start), job["stage"], round(job["progress"] * 100), app_rss, helper_rss))
         if job["stage"] in ("done", "failed"):

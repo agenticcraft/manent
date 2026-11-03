@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-import.py <app binary> <data dir> <screenshot dir> <file> [<file> ...]
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (with the engine and model). Each file
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (with the engine and model). Each file
 (wav/mp3/m4a/mp4/...) may have `<name>.truth.json` next to it (segments with start, end, text,
 and optionally lang and voice). Imports go through the same command as the Import button and
 drag and drop (the native dialog itself can't be driven). Checks: jobs show progress and survive
@@ -39,7 +39,7 @@ def wer(ref, hyp):
 
 
 def segments(meeting):
-    con = sqlite3.connect(DATA / "veritas.db")
+    con = sqlite3.connect(DATA / "manent.db")
     rows = con.execute("""SELECT s.pass, s.speaker_label, sp.name, s.start_ms, s.end_ms, s.text, s.words_json
                           FROM segments s LEFT JOIN speakers sp ON sp.id = s.speaker_id
                           WHERE s.meeting_id = ? ORDER BY s.start_ms""", (meeting,)).fetchall()

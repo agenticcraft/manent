@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-engine.py <app binary> <data dir> <screenshot dir> [--seed-model <gguf>]
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (an empty temp folder). Downloads the
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (an empty temp folder). Downloads the
 engine (~14 MB) from quay.io. With --seed-model, all but the last 40 MB of a local copy of the
 model are put in place as a partial download first, so the model download resumes with a Range
 request and still has to pass the sha256 check (instead of fetching 1.1 GB). Needs audio
@@ -25,8 +25,8 @@ MODEL_SHA = "85304e3bb49de04b84a7d0c76baaa7dedd1a0c02c0920078a99f92c00cffbdf6"
 
 
 def helper_pids():
-    """veritas-engine processes that belong to this data folder."""
-    out = subprocess.run(["pgrep", "-f", f"veritas-engine.*{DATA}"], capture_output=True, text=True).stdout
+    """manent-engine processes that belong to this data folder."""
+    out = subprocess.run(["pgrep", "-f", f"manent-engine.*{DATA}"], capture_output=True, text=True).stdout
     return [int(p) for p in out.split()]
 
 
@@ -163,7 +163,7 @@ s.wait_for("return document.querySelector('[data-testid=stop]')", 5)
 elapsed = time.time() - rec_start
 s.js("document.querySelector('[data-testid=stop]').click()")
 s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 20)
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 duration_ms = con.execute("SELECT duration_ms FROM meetings").fetchone()[0]
 tracks = con.execute("SELECT source_kind, seconds FROM tracks").fetchall()
 con.close()

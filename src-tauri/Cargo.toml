@@ -3,7 +3,7 @@ members = [".", "engine-helper"]
 default-members = [".", "engine-helper"]
 
 [package]
-name = "veritas"
+name = "manent"
 version = "0.1.0"
 description = "Local-first meeting recorder and transcriber"
 authors = ["Rob"]
@@ -15,7 +15,7 @@ edition = "2024"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "veritas_lib"
+name = "manent_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [lints.rust]

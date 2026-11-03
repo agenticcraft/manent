@@ -11,7 +11,7 @@ pub fn spawn(why: &str) -> Result<Option<Child>, String> {
         .args([
             "--what=sleep",
             "--mode=block",
-            "--who=Veritas",
+            "--who=Manent",
             &format!("--why={why}"),
             "cat",
         ])

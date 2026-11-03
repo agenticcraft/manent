@@ -60,7 +60,7 @@ pub fn repair_flac(path: &Path) -> Result<f64, RecoverError> {
 }
 
 /// Files recorded before VRT-41 have a placeholder header whose block sizes are invalid
-/// (min > max), which decoders reject. Veritas always writes fixed-size blocks, so put those in.
+/// (min > max), which decoders reject. Manent always writes fixed-size blocks, so put those in.
 /// `head` is the file's first 42 bytes: "fLaC", the STREAMINFO block header, then STREAMINFO,
 /// which starts with the min and max block size (16 bits each).
 fn fix_block_sizes(head: &mut [u8; 42]) {

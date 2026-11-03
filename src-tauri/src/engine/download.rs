@@ -42,7 +42,7 @@ pub fn agent() -> ureq::Agent {
         .timeout_recv_response(Some(Duration::from_secs(60)))
         // 4xx/5xx are handled here (a 416 means the part file is unusable).
         .http_status_as_error(false)
-        .user_agent(concat!("veritas/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("manent/", env!("CARGO_PKG_VERSION")))
         .build()
         .into()
 }

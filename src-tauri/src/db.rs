@@ -882,6 +882,36 @@ impl Db {
             .transpose()
     }
 
+    /// Point every stored path under `old` (a folder) at `new` instead: meeting folders, track
+    /// files and the chosen meetings folder (the data folder moved, VRT-44). Returns how many.
+    pub async fn rewrite_path_prefix(&self, old: &str, new: &str) -> Result<u64> {
+        let (old, new) = (old.trim_end_matches('/'), new.trim_end_matches('/'));
+        let mut n = 0;
+        for (table, column) in [("meetings", "dir"), ("tracks", "path")] {
+            let sql = format!(
+                "UPDATE {table} SET {column} = ?1 || substr({column}, length(?2) + 1)
+                 WHERE {column} = ?2 OR substr({column}, 1, length(?2) + 1) = ?2 || '/'"
+            );
+            n += sqlx::query(&sql)
+                .bind(new)
+                .bind(old)
+                .execute(&self.pool)
+                .await?
+                .rows_affected();
+        }
+        let chosen: Option<Option<String>> =
+            self.get_setting(crate::paths::MEETINGS_DIR_SETTING).await?;
+        if let Some(Some(dir)) = chosen
+            && (dir == old || dir.starts_with(&format!("{old}/")))
+        {
+            let moved = format!("{new}{}", &dir[old.len()..]);
+            self.set_setting(crate::paths::MEETINGS_DIR_SETTING, &Some(moved))
+                .await?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
     pub async fn delete_setting(&self, key: &str) -> Result<()> {
         sqlx::query("DELETE FROM settings WHERE key = ?")
             .bind(key)
@@ -962,7 +992,7 @@ mod tests {
     async fn sync_rows_round_trip_and_go_with_the_meeting() {
         let db = db().await;
         let m = db.create_meeting("Planning", 1_000, "/m/p").await.unwrap();
-        db.add_sync_meeting(m, "Veritas/2026-11-02 14.05 Planning", "phone")
+        db.add_sync_meeting(m, "Manent/2026-11-02 14.05 Planning", "phone")
             .await
             .unwrap();
         db.set_sync_uploaded(m, Some("abc"), true).await.unwrap();
@@ -976,10 +1006,10 @@ mod tests {
             ),
             ("phone", Some("abc"), true, false)
         );
-        db.set_inbox_item("Veritas/Inbox/a.opus", "e1", None, "importing", None)
+        db.set_inbox_item("Manent/Inbox/a.opus", "e1", None, "importing", None)
             .await
             .unwrap();
-        db.set_inbox_item("Veritas/Inbox/a.opus", "e1", Some(m), "done", None)
+        db.set_inbox_item("Manent/Inbox/a.opus", "e1", Some(m), "done", None)
             .await
             .unwrap();
         let items = db.inbox_items().await.unwrap();
@@ -1412,7 +1442,7 @@ mod tests {
     #[tokio::test]
     async fn file_database_persists_and_migrates_once() {
         let dir = crate::test_util::temp_dir();
-        let path = dir.join("veritas.db");
+        let path = dir.join("manent.db");
         {
             let db = Db::open(&path).await.unwrap();
             db.create_meeting("kept", 1, "/m").await.unwrap();

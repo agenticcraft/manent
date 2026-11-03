@@ -2728,6 +2728,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 
 [[package]]
+name = "manent"
+version = "0.1.0"
+dependencies = [
+ "audioadapter-buffers",
+ "claxon",
+ "cpal",
+ "flacenc",
+ "flate2",
+ "getrandom 0.4.3",
+ "hound",
+ "keyring",
+ "ogg",
+ "opus",
+ "quick-xml",
+ "rtrb",
+ "rubato",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "symphonia",
+ "tar",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "thiserror 2.0.21",
+ "tiny_http",
+ "tokio",
+ "ureq",
+]
+
+[[package]]
+name = "manent-engine"
+version = "0.1.0"
+dependencies = [
+ "hound",
+ "libloading 0.9.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "markup5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6006,48 +6048,6 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "veritas"
-version = "0.1.0"
-dependencies = [
- "audioadapter-buffers",
- "claxon",
- "cpal",
- "flacenc",
- "flate2",
- "getrandom 0.4.3",
- "hound",
- "keyring",
- "ogg",
- "opus",
- "quick-xml",
- "rtrb",
- "rubato",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "sqlx",
- "symphonia",
- "tar",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "thiserror 2.0.21",
- "tiny_http",
- "tokio",
- "ureq",
-]
-
-[[package]]
-name = "veritas-engine"
-version = "0.1.0"
-dependencies = [
- "hound",
- "libloading 0.9.0",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "version-compare"

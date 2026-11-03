@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-11-02T20:47:00Z'
+updated_date: '2026-11-03T19:46:00Z'
 ---
 ## 1. Technical foundation
 
@@ -37,14 +37,14 @@ Design:
 **One model for everything, Dutch and English (decided in VRT-32):** `parakeet-cpp-bundle-standard` (1.1 GB, Q8_0). It holds parakeet-tdt 0.6B v3 (ASR, 25 European languages, detects the language itself), Nemotron-3 diarization, WeSpeaker speaker embeddings, Silero VAD and a sound tagger. It serves live captions, the rolling and final passes, diarization and speaker embeddings. No streaming models are needed.
 
 - `parakeet-cpp` is a C++/ggml port of NVIDIA NeMo Parakeet. It runs quantized GGUF models on CPU at upstream accuracy and returns **word-level timestamps**.
-- **Engine decision (VRT-29, decision-1):** no LocalAI. The spikes used LocalAI, but its parakeet-cpp backend is a thin wrapper around `libparakeet.so`, whose C API (`parakeet_capi_*`, ABI v10, header in `spikes/engine/include/`) Veritas calls directly. Same results as through LocalAI (identical WER, diarization and embeddings), faster (RTF 0.064 vs 0.10), 0.6 s to load, 1.9 GB peak on a 17 min file.
+- **Engine decision (VRT-29, decision-1):** no LocalAI. The spikes used LocalAI, but its parakeet-cpp backend is a thin wrapper around `libparakeet.so`, whose C API (`parakeet_capi_*`, ABI v10, header in `spikes/engine/include/`) Manent calls directly. Same results as through LocalAI (identical WER, diarization and embeddings), faster (RTF 0.064 vs 0.10), 0.6 s to load, 1.9 GB peak on a 17 min file.
 - **Language:** auto only. The language option is ignored by parakeet 0.6B v3 (auto, `nl` and `en` give identical output), so the app has no language setting. Mixed Dutch/English meetings work because each chunk is detected on its own.
 - **Measured** (test machine, CPU, libparakeet directly, VRT-29): RTF 0.064 for transcription, 0.026 for diarization. Offline WER on spontaneous English meetings 14–20% (AMI, VRT-31); Dutch 11% on read speech (FLEURS) and 8–17% disagreement with YouTube captions on Dutch interviews (VRT-32).
 - **Rejected for live** (VRT-2, VRT-31, VRT-32): `realtime_eou_120m` streaming (English only; 28.9% WER on a real meeting, drops crosstalk, no live speaker segments) and `nemotron-3.5-asr-streaming-0.6b` (32% WER on mixed NL/EN, leaks language tags). LocalAI's realtime WebSocket with `server_vad` waits for pauses, so text lagged up to 34 s on fluent speech.
-- **Licences** (NOTICE-parakeet-bundle-standard.txt): CC-BY-4.0 (ASR, WeSpeaker), OpenMDW-1.1 (diarization: permissive, keep the licence and notices when distributing), MIT (Silero VAD), Apache-2.0 per model card for the sound tagger (upstream licensing inconsistent; Veritas doesn't use it). The app shows the attributions; if the model is ever bundled, the NOTICE file ships with it.
+- **Licences** (NOTICE-parakeet-bundle-standard.txt): CC-BY-4.0 (ASR, WeSpeaker), OpenMDW-1.1 (diarization: permissive, keep the licence and notices when distributing), MIT (Silero VAD), Apache-2.0 per model card for the sound tagger (upstream licensing inconsistent; Manent doesn't use it). The app shows the attributions; if the model is ever bundled, the NOTICE file ships with it.
 
 How the app uses it:
-- **Helper process `veritas-engine`** (a small Rust binary in the workspace, the only crate allowed `unsafe`): loads `libparakeet.so` with `libloading`, checks `parakeet_capi_abi_version() == 10`, loads the bundle's components (`parakeet_capi_load_component`: ASR with an empty name, `"vad"`, `"diar"`, `"voice"`) once, and serves requests from the app as JSON lines over stdin/stdout. The app supervises it (start, restart after a crash, stop). A crash or out-of-memory in the engine never stops a recording. No network port, so nothing to bind.
+- **Helper process `manent-engine`** (a small Rust binary in the workspace, the only crate allowed `unsafe`): loads `libparakeet.so` with `libloading`, checks `parakeet_capi_abi_version() == 10`, loads the bundle's components (`parakeet_capi_load_component`: ASR with an empty name, `"vad"`, `"diar"`, `"voice"`) once, and serves requests from the app as JSON lines over stdin/stdout. The app supervises it (start, restart after a crash, stop). A crash or out-of-memory in the engine never stops a recording. No network port, so nothing to bind.
 - **Delivery (downloaded at first run, nothing big in the installer):**
   - libparakeet from LocalAI's backend images on quay.io (`go-skynet/local-ai-backends`: `cpu-parakeet-cpp` for linux/amd64, `metal-darwin-arm64-parakeet-cpp` for macOS arm64), fetched over the OCI registry API at a pinned digest, every layer checked against its sha256 (`engine/download.rs`, pins in `engine/assets.rs`). 13.8 MB download; only `libparakeet.so` (3.9 MB) and `libgomp.so.1` are kept. The image's own glibc and libstdc++ must never be used (the helper then fails on a glibc mismatch); the OS provides them. Always the CPU variant. **No Windows, macOS Intel or Linux arm64 CPU build exists**: Windows builds parakeet.cpp from source (VRT-11/VRT-23).
   - The model `parakeet-bundle-standard.gguf` (1.1 GB) from Hugging Face, with progress, resume and checksum. Own mirror: VRT-33.
@@ -72,7 +72,7 @@ How the app uses it:
 ### 1.4 Speaker identity and naming
 Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dutch interviews, across recordings and across Dutch/English): every enrolled person was named correctly and no unenrolled voice got a name.
 
-- **Embeddings come from the engine, matching happens in the app.** `diarize_profiles_pcm_json` returns a 256-dim WeSpeaker embedding (and `clean_duration`) per speaker; they are identical to the ones LocalAI returned in the spikes (VRT-29). Veritas compares them with its own registry using cosine distance in Rust. It doesn't use libparakeet's in-memory speaker registry.
+- **Embeddings come from the engine, matching happens in the app.** `diarize_profiles_pcm_json` returns a 256-dim WeSpeaker embedding (and `clean_duration`) per speaker; they are identical to the ones LocalAI returned in the spikes (VRT-29). Manent compares them with its own registry using cosine distance in Rust. It doesn't use libparakeet's in-memory speaker registry.
 - **Registry:** tables `speakers(id, name, color)` and `voice_samples(id, speaker_id, embedding BLOB, encoder_id, clean_seconds, meeting_id, created_at)`. A person has several samples. Matching uses the nearest sample, and only samples from the same encoder (`encoder_id` = the `sha256:` identity in `speaker_profiles`).
 - **Decision rule** (cosine distance to the nearest sample of each person): **auto-name** when the nearest person is ≤ 0.40 *and* at least 0.15 closer than any other enrolled person; **suggest** the nearest name (user confirms) when it is ≤ 0.60; otherwise leave the speaker unnamed ("Speaker N"). Measured: same person 0.06–0.39 (worst case: 6 s enrollment on degraded audio); different people ≥ 0.46 (two Dutch men in the same studio), usually ≥ 0.68.
 - **Tiny slots:** diarization slots with < 5 s of clean speech are never auto-named and never used as samples; the user can merge them into a named speaker.
@@ -83,7 +83,7 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
 - Renaming a speaker updates every segment retroactively. Merging speakers (for example "Speaker 1" and "Speaker 3" are the same person) moves their samples to one person. Deleting a person deletes all their samples.
 
 ### 1.5 Storage
-- **SQLite** via `sqlx` (bundled SQLite, WAL, foreign keys on) in the app data folder: `<app data>/veritas.db`, opened and migrated at app start (`src-tauri/migrations/`, implemented in VRT-6). Times are milliseconds: absolute since the Unix epoch, or relative to the meeting start.
+- **SQLite** via `sqlx` (bundled SQLite, WAL, foreign keys on) in the app data folder: `<app data>/manent.db`, opened and migrated at app start (`src-tauri/migrations/`, implemented in VRT-6). Times are milliseconds: absolute since the Unix epoch, or relative to the meeting start.
   - `meetings(id, title, started_at, duration_ms, status ∈ recording|processing|done|failed, dir)`
   - `tracks(id, meeting_id → meetings, source_kind ∈ mic|loopback, source_id, device_name, path, seconds)`
   - `segments(id, meeting_id → meetings, track_id → tracks, pass ∈ caption|rolling|final, speaker_id → speakers, speaker_label, start_ms, end_ms, text, words_json)`: the three passes of §1.3; a rolling or final pass atomically replaces the segments of earlier passes in its time window.
@@ -99,6 +99,13 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
 - **Keeping only the playback file (VRT-27):** with `storage.keep = mix`, a meeting's FLAC tracks are deleted after its final pass (the waveform is cached first; never without `mix.opus`). Re-transcribe then explains that the tracks are gone. Measured sizes: FLAC tracks of a recording ~400 MB per hour, `mix.opus` ~13 MB per hour.
 - Each meeting has a folder `<app data>/meetings/<id>/` holding `mic.flac` and `system.flac` (one file per source, §1.2), or `import.flac` for an imported file, and `mix.opus`.
 - **`transcript.md` (VRT-37, decision-5):** each meeting folder also holds the transcript as Markdown with a YAML header (`transcript_md.rs`). The header has schema version, id, title, start (UTC), duration, the audio files present, pass, speakers and gaps; every value is written as JSON, which is valid YAML. The body has a block per speaker turn (`**Name** · m:ss` and its text on one line) and a `> No audio …` note where audio is missing. It holds names only, never voice embeddings. It is written atomically (temp file + rename) after every transcription job, and rewritten when a meeting is renamed or a speaker is named, merged or deleted, and when the user's own name changes. Meetings without one get it at startup. `parse` reads it back (round-trip tested) for the companion app and later re-import.
+- **The rename to Manent (VRT-44, decision-8):** the identifier `ai.agenticcraft.manent` sets the OS data folder. On the first start, `legacy.rs` does the following:
+  - moves the old `nl.veritas.app` folder into the new one. Entries already there, the webview's caches, stay; the rest moves. Across disks it copies and then deletes.
+  - renames `veritas.db` (with its WAL files) to `manent.db`;
+  - rewrites meeting and track paths, and the chosen meetings folder, that pointed into the old folder;
+  - keeps a sync connection's server folder `Veritas`.
+  
+  Elsewhere, the old names keep working: the Nextcloud app password moves from keychain service `veritas-nextcloud` to `manent-nextcloud`, `transcript.md` files with `veritas: 1` still parse and are rewritten, and `VERITAS_*` environment variables are still read, with a warning.
 - **Nextcloud sync (VRT-39, decision-5, decision-7):** `sync/` (`dav.rs` is a WebDAV client over ureq; `mod.rs` is the service). It is off until the user connects in Settings:
   - **Connect:** Login Flow v2 opens the browser (`open_url.rs`, the OS opener). The app password goes into the OS keychain (keyring), and the server and login name into settings.
   - **Rounds:** every 60 s, and right away when a transcript is written, on "Sync now", when the window gets focus, and on connect. A round makes `<folder>` and `<folder>/Inbox`, then compares the folder's ETag (one Depth-0 PROPFIND).
@@ -112,7 +119,7 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
 
 ### 1.6 Project layout
 ```
-veritas/
+veritas/                     # the repository keeps its name (decision-8)
   src-tauri/                 # Cargo workspace: the app and the engine helper
     src/
       main.rs, lib.rs        # entry point; Tauri setup, state, command registration
@@ -126,8 +133,12 @@ veritas/
       engine/                # EngineManager, helper client, downloads, pins, transcript types
       db.rs                  # sqlx queries; migrations/ next to src/
       media_server.rs        # local playback server for mix.opus
-      paths.rs               # data folders (VERITAS_DATA_DIR override)
-    engine-helper/           # veritas-engine: libparakeet FFI, JSON lines on stdin/stdout
+      paths.rs               # data folders (MANENT_DATA_DIR override)
+      legacy.rs              # carrying data over from the working name Veritas (VRT-44)
+      sync/                  # Nextcloud sync: dav.rs (WebDAV client), mod.rs (service) (VRT-39)
+      transcript_md.rs       # transcript.md next to the audio (VRT-37)
+      power/, tray.rs        # keeping the computer awake (VRT-36), tray icon (VRT-22)
+    engine-helper/           # manent-engine: libparakeet FFI, JSON lines on stdin/stdout
     tests/fixtures/          # FLEURS speech and format fixtures (see its README)
   src/                       # React UI
     routes/                  # Library, Live, Meeting, Speakers, Settings

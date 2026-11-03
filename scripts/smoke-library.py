@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-library.py <app binary> <data dir> <screenshot dir>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (an empty temp folder), so the app
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (an empty temp folder), so the app
 never touches real data. The script starts the app once (creates + migrates the DB), seeds
 meetings with speakers and audio folders, restarts the app and checks the Library.
 """
@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from wdlib import Session  # noqa: E402
 
 APP, DATA, OUT = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
-DB = DATA / "veritas.db"
+DB = DATA / "manent.db"
 
 # 1. First start creates the database; nothing to check yet except an empty library.
 s = Session(APP)

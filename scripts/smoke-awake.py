@@ -2,8 +2,8 @@
 
 Usage: python3 scripts/smoke-awake.py <app binary> <data dir> <screenshot dir>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (Linux with systemd; audio hardware).
-Checks that logind lists Veritas's sleep inhibitor while a recording runs and drops it when
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (Linux with systemd; audio hardware).
+Checks that logind lists Manent's sleep inhibitor while a recording runs and drops it when
 the recording stops and when the app is killed (a crash). A real suspend can't be driven from
 a script, so the gap marker is checked by adding a gap to a stopped recording in the database
 (the detection itself is unit-tested in audio::recorder) and opening that meeting.
@@ -23,7 +23,7 @@ APP, DATA, OUT = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
 
 def inhibitors():
     out = subprocess.run(["systemd-inhibit", "--list"], capture_output=True, text=True).stdout
-    return [line for line in out.splitlines() if "Veritas" in line and "Recording a meeting" in line]
+    return [line for line in out.splitlines() if "Manent" in line and "Recording a meeting" in line]
 
 
 def wait_until(cond, timeout=5.0):
@@ -53,7 +53,7 @@ s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 30)
 s.check(wait_until(lambda: not inhibitors()), "released when the recording stops")
 
 # A gap: the meeting shows a marker at that point, between the blocks; also without words.
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 [(talk,)] = con.execute("""SELECT s.meeting_id FROM segments s JOIN meetings m ON m.id = s.meeting_id
                            WHERE s.pass = 'final' AND m.duration_ms > 180000 ORDER BY s.meeting_id DESC LIMIT 1""")
 con.execute("DELETE FROM meeting_gaps WHERE meeting_id = ?", (talk,))  # from an earlier run

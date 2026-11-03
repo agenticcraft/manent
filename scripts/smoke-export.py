@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-export.py <app binary> <data dir> <screenshot dir> <out dir>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir>, a folder with transcribed meetings
+tauri-driver must run with MANENT_DATA_DIR=<data dir>, a folder with transcribed meetings
 (e.g. after smoke-import.py or smoke-naming.py). Opens a meeting with named people, checks the
 Export menu, and exports all four formats into <out dir> through the same command the menu
 uses after the save dialog (the native dialog itself can't be driven). Checks each file:
@@ -21,7 +21,7 @@ from wdlib import Session  # noqa: E402
 APP, DATA, OUT, DEST = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
 DEST.mkdir(parents=True, exist_ok=True)
 
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 # A meeting whose final transcript names at least one person.
 row = con.execute("""SELECT s.meeting_id, m.title FROM segments s JOIN meetings m ON m.id = s.meeting_id
                      WHERE s.pass = 'final' AND s.speaker_id IS NOT NULL

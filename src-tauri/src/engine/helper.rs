@@ -1,4 +1,4 @@
-//! Client side of the `veritas-engine` helper process (protocol in engine-helper/src/main.rs).
+//! Client side of the `manent-engine` helper process (protocol in engine-helper/src/main.rs).
 //!
 //! One reader thread routes answers to waiting requests by id. When the process ends
 //! (crash, kill, out of memory) every waiting request fails with "engine stopped" and the
@@ -53,7 +53,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// The helper binary next to the app binary (in tests: next to `target/<profile>/deps`).
 pub fn helper_exe() -> Option<PathBuf> {
-    let name = format!("veritas-engine{}", std::env::consts::EXE_SUFFIX);
+    let name = format!("manent-engine{}", std::env::consts::EXE_SUFFIX);
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
     [dir.join(&name), dir.parent()?.join(&name)]
@@ -99,7 +99,7 @@ impl Helper {
         let tail = Arc::new(Mutex::new(VecDeque::new()));
         let tail_w = tail.clone();
         std::thread::Builder::new()
-            .name("veritas-engine-stderr".into())
+            .name("manent-engine-stderr".into())
             .spawn(move || {
                 for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                     eprintln!("[engine] {line}");
@@ -123,7 +123,7 @@ impl Helper {
                 tail.clone(),
             );
             std::thread::Builder::new()
-                .name("veritas-engine-reader".into())
+                .name("manent-engine-reader".into())
                 .spawn(move || {
                     let mut lines = BufReader::new(stdout).lines().map_while(Result::ok);
                     if let Some(first) = lines.next() {

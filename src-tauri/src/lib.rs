@@ -1,4 +1,4 @@
-//! Veritas core: Tauri setup and module wiring (doc-2 §1.6).
+//! Manent core: Tauri setup and module wiring (doc-2 §1.6).
 
 use tauri::{Emitter, Manager};
 
@@ -10,6 +10,7 @@ mod db;
 mod engine;
 mod export;
 mod jobs;
+mod legacy;
 mod live;
 mod media_server;
 mod open_url;
@@ -31,9 +32,18 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Open the database and run migrations before any window can use it.
-            let paths = paths::AppPaths::resolve(app.path().app_data_dir()?);
+            // Data from before the rename to Manent moves along first (VRT-44).
+            let app_data = app.path().app_data_dir()?;
+            let moved = if legacy::env_var("DATA_DIR").is_none() {
+                legacy::move_data_dir(&app_data)?
+            } else {
+                None
+            };
+            let paths = paths::AppPaths::resolve(app_data);
             std::fs::create_dir_all(&paths.data)?;
+            legacy::rename_database(&paths.data, paths::DATABASE_FILE)?;
             let db = tauri::async_runtime::block_on(db::Db::open(&paths.database()))?;
+            tauri::async_runtime::block_on(legacy::after_open(&db, moved.as_deref(), &paths.data))?;
             // A meetings folder chosen in Settings > Storage (VRT-27).
             let chosen: Option<Option<String>> =
                 tauri::async_runtime::block_on(db.get_setting(paths::MEETINGS_DIR_SETTING))?;

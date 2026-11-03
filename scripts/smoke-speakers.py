@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-speakers.py <app binary> <data dir> <screenshot dir> <speech.wav> [--rename]
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir>, a temp folder with the engine and model
+tauri-driver must run with MANENT_DATA_DIR=<data dir>, a temp folder with the engine and model
 downloaded. The WAV (multi-speaker; `<speech>.truth.json` next to it with segments
 {start, end, voice}) is played on the default output (60% volume; use a loudness-normalised
 file) during a recording. Checks:
@@ -92,7 +92,7 @@ while time.time() < end:
     time.sleep(0.5)
 player.wait()
 
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 kinds = dict(con.execute("SELECT id, source_kind FROM tracks WHERE meeting_id = ?", (meeting,)).fetchall())
 con.close()
 waits = sorted(labelled_at.values())
@@ -145,7 +145,7 @@ while time.time() < deadline:
 s.check(done is not None, f"final pass finished {done and round(done)} s after Stop ({length:.0f} s of audio)")
 s.close()
 
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 rows = con.execute("SELECT track_id, pass, speaker_label, start_ms, end_ms, text, words_json FROM segments WHERE meeting_id = ?",
                    (meeting,)).fetchall()
 con.close()

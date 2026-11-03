@@ -6,7 +6,7 @@ import { call, on, type SyncStatus } from "@/lib/ipc";
 
 /**
  * Settings > Nextcloud (VRT-39, decision-7): connect a folder on the user's own Nextcloud.
- * Off by default. Connecting opens Nextcloud's login page in the browser; Veritas gets an app
+ * Off by default. Connecting opens Nextcloud's login page in the browser; Manent gets an app
  * password that stays in the OS keychain. The phone puts recordings in <folder>/Inbox.
  */
 export function SyncSettings() {
@@ -43,9 +43,9 @@ export function SyncSettings() {
           className="flex flex-col gap-2 rounded-lg border px-4 py-3 text-sm"
           data-testid="sync-connecting"
         >
-          <p>Approve Veritas in the browser window that just opened.</p>
+          <p>Approve Manent in the browser window that just opened.</p>
           <p className="text-xs text-muted-foreground">
-            Veritas then gets its own app password, kept in this computer&apos;s keychain. You can
+            Manent then gets its own app password, kept in this computer&apos;s keychain. You can
             revoke it here or in Nextcloud.
           </p>
           <div className="flex gap-2">
@@ -92,7 +92,7 @@ export function SyncSettings() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Recordings from the phone app go into a Veritas folder in your Nextcloud; this computer
+            Recordings from the phone app go into a Manent folder in your Nextcloud; this computer
             transcribes them and puts the transcript next to them. Voice data never leaves this
             computer.
           </p>
@@ -172,7 +172,7 @@ export function SyncSettings() {
             {confirmDisconnect ? (
               <>
                 <span className="text-xs text-muted-foreground">
-                  Revoke Veritas&apos;s access? Files stay in Nextcloud and here.
+                  Revoke Manent&apos;s access? Files stay in Nextcloud and here.
                 </span>
                 <Button
                   size="sm"

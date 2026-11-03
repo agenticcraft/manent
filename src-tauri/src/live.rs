@@ -294,7 +294,7 @@ pub fn spawn<E: Engine + Send + 'static>(
     on_error: impl Fn(String) + Send + 'static,
 ) -> std::io::Result<(Feed, std::thread::JoinHandle<()>)> {
     let (tx, rx) = mpsc::channel::<Vec<f32>>();
-    let name = format!("veritas-captions-{}", track.track_id);
+    let name = format!("manent-captions-{}", track.track_id);
     let handle = std::thread::Builder::new().name(name).spawn(move || {
         let mut resampler = StreamResampler::new(sample_rate, SAMPLE_RATE);
         let mut chunker = Chunker::default();

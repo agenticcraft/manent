@@ -39,7 +39,7 @@ impl MediaServer {
         let base = format!("http://127.0.0.1:{port}/{token}");
         let worker = server.clone();
         let thread = std::thread::Builder::new()
-            .name("veritas-media".into())
+            .name("manent-media".into())
             .spawn(move || {
                 // One thread per request: the player keeps its main stream open while it
                 // asks for the end of the file (duration) and for seek targets in parallel.

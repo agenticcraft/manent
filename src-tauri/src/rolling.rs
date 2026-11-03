@@ -197,7 +197,7 @@ pub fn spawn<E: Engine + Clone + Send + Sync + 'static>(
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let handle = std::thread::Builder::new()
-        .name("veritas-rolling".into())
+        .name("manent-rolling".into())
         .spawn(move || {
             let mut labels = RollingLabels::default();
             let mut from: u64 = 0;
@@ -348,7 +348,7 @@ mod tests {
     }
 }
 
-/// The final pass through the real engine (VERITAS_TEST_ENGINE_DATA, see engine::engine_tests):
+/// The final pass through the real engine (MANENT_TEST_ENGINE_DATA, see engine::engine_tests):
 /// the mic hears the speakers (bleed) and the user says something in a pause.
 #[cfg(test)]
 mod engine_tests {
@@ -379,7 +379,7 @@ mod engine_tests {
     #[tokio::test]
     #[ignore = "needs the downloaded engine and model"]
     async fn final_pass_labels_speakers_and_keeps_only_the_users_own_words() {
-        let data = std::env::var_os("VERITAS_TEST_ENGINE_DATA").expect("VERITAS_TEST_ENGINE_DATA");
+        let data = std::env::var_os("MANENT_TEST_ENGINE_DATA").expect("MANENT_TEST_ENGINE_DATA");
         let paths = AppPaths::new(data.into());
         let engine = EngineManager::new(paths.clone(), |_| {});
         // System: two remote speakers, then 13 s of silence.

@@ -24,12 +24,12 @@ pub struct TrayToggle(MenuItem<tauri::Wry>);
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, TOGGLE, "Start recording", true, None::<&str>)?;
-    let show = MenuItem::with_id(app, SHOW, "Show Veritas", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, QUIT, "Quit Veritas", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, SHOW, "Show Manent", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, QUIT, "Quit Manent", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&toggle, &show, &quit_item])?;
     TrayIconBuilder::with_id(ID)
         .icon(Image::from_bytes(IDLE_ICON)?)
-        .tooltip("Veritas")
+        .tooltip("Manent")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             TOGGLE => toggle_recording(app.clone()),
@@ -50,9 +50,9 @@ pub fn set_recording(app: &AppHandle, recording: bool) {
             let _ = tray.set_icon(Some(image));
         }
         let _ = tray.set_tooltip(Some(if recording {
-            "Veritas: recording"
+            "Manent: recording"
         } else {
-            "Veritas"
+            "Manent"
         }));
     }
     if let Some(toggle) = app.try_state::<TrayToggle>() {

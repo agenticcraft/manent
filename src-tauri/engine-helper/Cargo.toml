@@ -1,7 +1,7 @@
 [package]
-name = "veritas-engine"
+name = "manent-engine"
 version = "0.1.0"
-description = "Veritas transcription engine helper: runs libparakeet (parakeet.cpp) out of process"
+description = "Manent transcription engine helper: runs libparakeet (parakeet.cpp) out of process"
 authors = ["Rob"]
 edition = "2024"
 

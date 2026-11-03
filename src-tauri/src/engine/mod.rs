@@ -1,4 +1,4 @@
-//! Transcription engine (doc-2 §1.3, decision-1): libparakeet in the `veritas-engine`
+//! Transcription engine (doc-2 §1.3, decision-1): libparakeet in the `manent-engine`
 //! helper process. This module downloads the engine and the model (VRT-14), starts the
 //! helper on demand, restarts it after a crash, and implements the `Engine` trait (VRT-15).
 
@@ -207,7 +207,7 @@ impl EngineManager {
         self.shared.changed();
         let shared = self.shared.clone();
         std::thread::Builder::new()
-            .name("veritas-download".into())
+            .name("manent-download".into())
             .spawn(move || {
                 let result = shared.download_all(&image, &cancel);
                 {
@@ -495,7 +495,7 @@ impl Shared {
             return fail("The engine or model is not downloaded yet".into());
         }
         let Some(exe) = helper::helper_exe() else {
-            return fail("veritas-engine is missing next to the app".into());
+            return fail("manent-engine is missing next to the app".into());
         };
         {
             let mut st = lock(&this.state);
@@ -568,7 +568,7 @@ impl Shared {
 
 /// Integration tests through the real helper and model (VRT-15). They need the engine and the
 /// model downloaded into a data folder (Settings > Transcription or scripts/smoke-engine.py):
-/// `VERITAS_TEST_ENGINE_DATA=<data dir> cargo test --workspace -- --ignored engine::`
+/// `MANENT_TEST_ENGINE_DATA=<data dir> cargo test --workspace -- --ignored engine::`
 #[cfg(test)]
 mod engine_tests {
     use super::*;
@@ -581,8 +581,8 @@ mod engine_tests {
     }
 
     fn engine() -> EngineManager {
-        let data = std::env::var_os("VERITAS_TEST_ENGINE_DATA")
-            .expect("set VERITAS_TEST_ENGINE_DATA to a data folder with the engine and model");
+        let data = std::env::var_os("MANENT_TEST_ENGINE_DATA")
+            .expect("set MANENT_TEST_ENGINE_DATA to a data folder with the engine and model");
         let engine = EngineManager::new(AppPaths::new(data.into()), |_| {});
         let status = engine.status();
         assert!(

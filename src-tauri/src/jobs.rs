@@ -99,7 +99,7 @@ impl Jobs {
         let (queue, rx) = mpsc::channel::<(u64, Work)>();
         let worker = shared.clone();
         std::thread::Builder::new()
-            .name("veritas-jobs".into())
+            .name("manent-jobs".into())
             .spawn(move || {
                 for (id, work) in rx {
                     let result = match work {

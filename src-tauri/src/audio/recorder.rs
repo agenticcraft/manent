@@ -266,7 +266,7 @@ impl Recording {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), RecorderError>>();
 
         let thread = std::thread::Builder::new()
-            .name("veritas-capture".into())
+            .name("manent-capture".into())
             .spawn(move || {
                 let mut streams = Vec::new();
                 let mut tracks = Vec::new();
@@ -600,14 +600,14 @@ mod tests {
     }
 
     /// Needs audio hardware. Records the default mic + system audio, pausing 2 s halfway.
-    /// `VERITAS_RECORD_SECONDS` sets the length (default 10). Run:
+    /// `MANENT_RECORD_SECONDS` sets the length (default 10). Run:
     /// `cargo test -- --ignored audio_hardware_record --nocapture`
     #[test]
     #[ignore]
     fn audio_hardware_record_mic_and_system() {
         use std::sync::{Arc, Mutex};
         use std::time::Instant;
-        let seconds: f64 = std::env::var("VERITAS_RECORD_SECONDS")
+        let seconds: f64 = std::env::var("MANENT_RECORD_SECONDS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10.0);

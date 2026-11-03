@@ -19,7 +19,7 @@ use super::flac::{FlacError, FlacWriter};
 pub enum ImportError {
     #[error("can't open {0}: {1}")]
     Open(String, std::io::Error),
-    #[error("{0}: not an audio or video file Veritas can read")]
+    #[error("{0}: not an audio or video file Manent can read")]
     Unsupported(String),
     #[error("{0}: has no audio")]
     NoAudio(String),

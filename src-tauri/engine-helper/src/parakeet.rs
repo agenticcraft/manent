@@ -1,4 +1,4 @@
-//! The parts of libparakeet's C API (include/parakeet_capi.h, ABI v10) that Veritas uses.
+//! The parts of libparakeet's C API (include/parakeet_capi.h, ABI v10) that Manent uses.
 //! VRT-29 measured these calls; `transcribe_and_diarize*` is deliberately not used.
 
 use std::ffi::{CStr, CString, c_char, c_float, c_int, c_void};
@@ -79,7 +79,7 @@ impl Engine {
         let abi = unsafe { abi_version() };
         if abi != ABI {
             return Err(format!(
-                "libparakeet ABI v{abi}, Veritas needs v{ABI}: download the engine again"
+                "libparakeet ABI v{abi}, Manent needs v{ABI}: download the engine again"
             ));
         }
         let load_component: unsafe extern "C" fn(*const c_char, *const c_char) -> Ctx =

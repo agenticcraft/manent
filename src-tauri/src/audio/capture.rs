@@ -169,8 +169,8 @@ mod tests {
         for s in &sources {
             println!("source: {s:?}");
         }
-        // VERITAS_AUDIO_TEST_REAL=1 picks real devices instead of the system-default aliases.
-        let want_default = std::env::var_os("VERITAS_AUDIO_TEST_REAL").is_none();
+        // MANENT_AUDIO_TEST_REAL=1 picks real devices instead of the system-default aliases.
+        let want_default = std::env::var_os("MANENT_AUDIO_TEST_REAL").is_none();
         let pick = |kind| {
             sources
                 .iter()

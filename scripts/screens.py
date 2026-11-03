@@ -3,7 +3,7 @@
 
 Usage: python3 scripts/screens.py <app binary> <data dir> <screenshot dir>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir>, a folder with transcribed meetings
+tauri-driver must run with MANENT_DATA_DIR=<data dir>, a folder with transcribed meetings
 (some with named people). Writes <screen>-<size>-<theme>.png. A short recording is made for
 the live screen and deleted again.
 """

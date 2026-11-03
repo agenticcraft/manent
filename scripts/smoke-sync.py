@@ -4,9 +4,9 @@ Usage: python3 scripts/smoke-sync.py <app binary> <data dir> <screenshot dir> <s
 
 Needs the engine (the phone recording is transcribed) and a local Nextcloud with a test user
 (see spikes/nextcloud/e2e.py for the container). tauri-driver must run with
-VERITAS_DATA_DIR=<data dir> and VERITAS_NO_BROWSER=1 (the script approves the login itself,
+MANENT_DATA_DIR=<data dir> and MANENT_NO_BROWSER=1 (the script approves the login itself,
 with spikes/nextcloud/nc_grant.py, as the user would in the browser). Empties the test user's
-Veritas folder first.
+Manent folder first.
 
 Checks: connecting in Settings (app password in the keychain, not in the database); a phone
 recording with meta.json in the inbox is imported with its title, transcribed, moved on the
@@ -68,20 +68,20 @@ def _up():
 
 
 def secret():
-    out = subprocess.run(["secret-tool", "search", "--all", "--unlock", "service", "veritas-nextcloud"],
+    out = subprocess.run(["secret-tool", "search", "--all", "--unlock", "service", "manent-nextcloud"],
                          capture_output=True, text=True).stdout
     return next((line.split("= ", 1)[1] for line in out.splitlines() if line.startswith("secret = ")), None)
 
 
 def db(query, *args):
-    con = sqlite3.connect(DATA / "veritas.db")
+    con = sqlite3.connect(DATA / "manent.db")
     rows = con.execute(query, args).fetchall()
     con.close()
     return rows
 
 
 # A clean start on the server.
-requests.request("DELETE", f"{DAV}/Veritas", auth=auth)
+requests.request("DELETE", f"{DAV}/Manent", auth=auth)
 
 s = Session(APP)
 s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 15)
@@ -108,27 +108,27 @@ app_password = secret()
 stored = [v for (k, v) in db("SELECT key, value FROM settings WHERE key LIKE 'sync.%'")]
 s.check(bool(app_password) and not any(app_password in v for v in stored),
         f"app password in the keychain, not in the database (settings: {stored})")
-s.check(wait(lambda: ls("Veritas") == ["Inbox"], 30), f"the Veritas/Inbox folder is made ({ls('Veritas')})")
+s.check(wait(lambda: ls("Manent") == ["Inbox"], 30), f"the Manent/Inbox folder is made ({ls('Manent')})")
 
 # 2. A phone recording in the inbox.
 rec = OUT / "phone-recording.opus"
 subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "25", "-t", "60", "-i", SPEECH, "-ac", "1",
                 "-c:a", "libopus", "-b:a", "32k", str(rec)], check=True)
 started = int(time.time() * 1000) - 3_600_000
-requests.put(f"{DAV}/Veritas/Inbox/phone-0912.opus", data=rec.read_bytes(), auth=auth).raise_for_status()
-requests.put(f"{DAV}/Veritas/Inbox/phone-0912.meta.json", auth=auth,
+requests.put(f"{DAV}/Manent/Inbox/phone-0912.opus", data=rec.read_bytes(), auth=auth).raise_for_status()
+requests.put(f"{DAV}/Manent/Inbox/phone-0912.meta.json", auth=auth,
              data=json.dumps({"title": "Smoke phone meeting", "started_at": started, "device": "test"})).raise_for_status()
 s.invoke("sync_now")
 meeting = wait(lambda: next((m for m in s.invoke("list_meetings") if m["title"] == "Smoke phone meeting"), None), 60)
 s.check(bool(meeting) and abs(meeting["started_at"] - started) < 1000,
         f"imported with the title and start time from meta.json ({meeting and meeting['id']})")
-folder = wait(lambda: next((n for n in (ls("Veritas") or []) if n.endswith("Smoke phone meeting")), None), 300, 2)
-files = ls(f"Veritas/{folder}") if folder else None
+folder = wait(lambda: next((n for n in (ls("Manent") or []) if n.endswith("Smoke phone meeting")), None), 300, 2)
+files = ls(f"Manent/{folder}") if folder else None
 s.check(bool(folder) and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d\.\d\d Smoke phone meeting", folder or "")
-        and files == ["phone-0912.meta.json", "phone-0912.opus", "transcript.md"] and ls("Veritas/Inbox") == [],
-        f"moved into {folder!r} with its transcript ({files}); inbox {ls('Veritas/Inbox')}")
-md = requests.get(f"{DAV}/Veritas/{folder}/transcript.md", auth=auth).text if folder else ""
-s.check(md.startswith("---\nveritas: 1\n") and "Smoke phone meeting" in md and "**" in md,
+        and files == ["phone-0912.meta.json", "phone-0912.opus", "transcript.md"] and ls("Manent/Inbox") == [],
+        f"moved into {folder!r} with its transcript ({files}); inbox {ls('Manent/Inbox')}")
+md = requests.get(f"{DAV}/Manent/{folder}/transcript.md", auth=auth).text if folder else ""
+s.check(md.startswith("---\nmanent: 1\n") and "Smoke phone meeting" in md and "**" in md,
         f"transcript.md on the server ({len(md)} chars)")
 s.js("[...document.querySelectorAll('nav[aria-label=Main] button')].find(b => b.textContent.includes('Library')).click()")
 line = s.wait_for("const l = document.querySelector('[data-testid=sync-line]'); return l && l.textContent", 10)
@@ -152,7 +152,7 @@ if container:
 voices = s.invoke("meeting_voices", {"meetingId": meeting["id"]}) if meeting else []
 if voices:
     s.invoke("name_speaker", {"meetingId": meeting["id"], "label": voices[0]["label"], "name": "Smoke Sync Person"})
-    s.check(bool(wait(lambda: "Smoke Sync Person" in requests.get(f"{DAV}/Veritas/{folder}/transcript.md", auth=auth).text, 30)),
+    s.check(bool(wait(lambda: "Smoke Sync Person" in requests.get(f"{DAV}/Manent/{folder}/transcript.md", auth=auth).text, 30)),
             "naming a speaker updates transcript.md on the server")
 
 # 4. All meetings: desktop meetings get a folder with mix.opus and transcript.md.
@@ -177,7 +177,7 @@ if sample:
 s.invoke("sync_set_mode", {"mode": "phone"})
 if meeting:
     s.invoke("delete_meeting", {"id": meeting["id"], "alsoRemote": True})
-    s.check(ls(f"Veritas/{folder}") is None, "deleting the meeting removed its folder on the server")
+    s.check(ls(f"Manent/{folder}") is None, "deleting the meeting removed its folder on the server")
 
 # 7. Settings, then disconnect.
 s.js("[...document.querySelectorAll('nav[aria-label=Main] button')].find(b => b.textContent.includes('Settings')).click()")
@@ -193,7 +193,7 @@ s.js("document.querySelector('[data-testid=sync-disconnect]').click()")
 s.wait_for("return document.querySelector('[data-testid=sync-disconnect-confirm]')", 5)
 s.js("document.querySelector('[data-testid=sync-disconnect-confirm]').click()")
 off = wait(lambda: s.invoke("sync_status")["state"] == "off", 20)
-code = requests.request("PROPFIND", f"{DAV}/Veritas", auth=(USER, app_password or "x")).status_code
+code = requests.request("PROPFIND", f"{DAV}/Manent", auth=(USER, app_password or "x")).status_code
 s.check(bool(off) and secret() is None and code == 401,
         f"disconnect revokes the app password (server answers {code}) and empties the keychain")
 s.close()

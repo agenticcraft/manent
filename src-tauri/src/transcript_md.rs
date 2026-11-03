@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! ---
-//! veritas: 1
+//! manent: 1
 //! id: 42
 //! title: "Kwartaaloverleg"
 //! started_at: "2026-10-31T13:05:00Z"
@@ -86,7 +86,7 @@ pub fn render(header: &Header, blocks: &[Block]) -> String {
         .map(|(at, missing)| json!({"at_ms": at, "missing_ms": missing}))
         .collect();
     let mut out = format!(
-        "---\nveritas: {SCHEMA}\nid: {}\ntitle: {}\nstarted_at: {}\nduration_ms: {}\naudio: {}\npass: {}\nspeakers: {}\ngaps: {}\n---\n\n# {}\n",
+        "---\nmanent: {SCHEMA}\nid: {}\ntitle: {}\nstarted_at: {}\nduration_ms: {}\naudio: {}\npass: {}\nspeakers: {}\ngaps: {}\n---\n\n# {}\n",
         header.id,
         s(&header.title),
         s(&header.started_at),
@@ -188,9 +188,10 @@ pub fn parse(text: &str) -> Result<Doc, String> {
             })
             .collect()
     };
-    let schema = int("veritas")? as u64;
+    // Files written before the rename (VRT-44) say "veritas: 1".
+    let schema = int("manent").or_else(|_| int("veritas"))? as u64;
     if schema > SCHEMA {
-        return Err(format!("written by a newer Veritas (format {schema})"));
+        return Err(format!("written by a newer Manent (format {schema})"));
     }
     let gaps = get("gaps")?
         .as_array()
@@ -395,7 +396,13 @@ pub fn spawn_backfill(db: Db) {
         };
         let missing: Vec<i64> = list
             .into_iter()
-            .filter(|m| m.status == "done" && !Path::new(&m.dir).join(FILE).exists())
+            .filter(|m| {
+                let file = Path::new(&m.dir).join(FILE);
+                // Missing, or written before the rename to Manent (VRT-44).
+                m.status == "done"
+                    && std::fs::read_to_string(&file)
+                        .map_or(true, |t| t.starts_with("---\nveritas:"))
+            })
             .map(|m| m.id)
             .collect();
         if !missing.is_empty() {
@@ -489,10 +496,17 @@ mod tests {
     }
 
     #[test]
+    fn files_from_before_the_rename_still_parse() {
+        let old = render(&header(), &blocks()).replace("manent: 1", "veritas: 1");
+        let doc = parse(&old).unwrap();
+        assert_eq!((doc.schema, doc.header.id), (1, 42));
+    }
+
+    #[test]
     fn rejects_what_it_cannot_read() {
         assert!(parse("# just markdown\n").is_err());
-        assert!(parse("---\nveritas: 1\n").is_err(), "unclosed header");
-        let newer = render(&header(), &blocks()).replace("veritas: 1", "veritas: 99");
+        assert!(parse("---\nmanent: 1\n").is_err(), "unclosed header");
+        let newer = render(&header(), &blocks()).replace("manent: 1", "manent: 99");
         assert!(parse(&newer).unwrap_err().contains("newer"));
         let broken =
             render(&header(), &blocks()).replace("duration_ms: 3725000", "duration_ms: long");

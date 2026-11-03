@@ -22,7 +22,7 @@ pub struct Account {
 /// One entry of a PROPFIND answer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
-    /// Path below the user's files root, e.g. "Veritas/Inbox/rec.opus" (no leading slash).
+    /// Path below the user's files root, e.g. "Manent/Inbox/rec.opus" (no leading slash).
     pub path: String,
     pub etag: String,
     pub size: u64,
@@ -55,7 +55,7 @@ pub fn agent() -> Agent {
         .timeout_recv_response(Some(std::time::Duration::from_secs(120)))
         .http_status_as_error(false)
         .allow_non_standard_methods(true)
-        .user_agent(concat!("Veritas/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Manent/", env!("CARGO_PKG_VERSION")))
         .build()
         .into()
 }
@@ -466,7 +466,7 @@ fn transfer_id(local: &Path, path: &str, size: u64) -> R<String> {
         .map_or(0, |d| d.as_secs());
     let digest = Sha256::digest(format!("{path}\n{size}\n{modified}").as_bytes());
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    Ok(format!("veritas-{}", &hex[..20]))
+    Ok(format!("manent-{}", &hex[..20]))
 }
 
 /// The entries of a multistatus answer, with paths below `root` (a URL path prefix).
@@ -546,7 +546,7 @@ mod tests {
 
     #[test]
     fn paths_round_trip() {
-        let p = "Veritas/Meeting 1 – Q4/transcript.md";
+        let p = "Manent/Meeting 1 – Q4/transcript.md";
         assert_eq!(decode_path(&encode_path(p)), p);
         assert!(!encode_path(p).contains(' '));
     }
@@ -555,16 +555,16 @@ mod tests {
     fn parses_a_nextcloud_multistatus() {
         let xml = r#"<?xml version="1.0"?>
 <d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
- <d:response><d:href>/remote.php/dav/files/vtest/Veritas/</d:href>
+ <d:response><d:href>/remote.php/dav/files/vtest/Manent/</d:href>
   <d:propstat><d:prop><d:getetag>"abc"</d:getetag><d:resourcetype><d:collection/></d:resourcetype><oc:size>12</oc:size></d:prop></d:propstat></d:response>
- <d:response><d:href>/remote.php/dav/files/vtest/Veritas/Inbox/a%20b.opus</d:href>
+ <d:response><d:href>/remote.php/dav/files/vtest/Manent/Inbox/a%20b.opus</d:href>
   <d:propstat><d:prop><d:getetag>"def"</d:getetag><d:getcontentlength>12</d:getcontentlength><d:resourcetype/></d:prop></d:propstat></d:response>
 </d:multistatus>"#;
         let list = parse_multistatus(xml, "/remote.php/dav/files/vtest/").unwrap();
         assert_eq!(
             list[0],
             Entry {
-                path: "Veritas".into(),
+                path: "Manent".into(),
                 etag: "abc".into(),
                 size: 12,
                 is_dir: true
@@ -573,7 +573,7 @@ mod tests {
         assert_eq!(
             list[1],
             Entry {
-                path: "Veritas/Inbox/a b.opus".into(),
+                path: "Manent/Inbox/a b.opus".into(),
                 etag: "def".into(),
                 size: 12,
                 is_dir: false

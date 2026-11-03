@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/measure-live.py <app binary> <data dir> <screenshot dir> <speech.wav> [<captions.vtt>]
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (with the engine and model). Records
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (with the engine and model). Records
 while the WAV plays on the default output (60% volume; use a loudness-normalised file). Every
 2 s it notes new captions and the end of the newest rolling pass; every 10 s the resident
 memory of the app and the engine helper. Reports per 5 minutes: the caption latency (when a
@@ -91,7 +91,7 @@ while player.poll() is None or time.time() < play_at + length + 5:
     rolled = max((c["end_ms"] for c in segs if c["pass"] == "rolling"), default=0) / 1000
     if now - last_mem >= 10:
         last_mem = now
-        mem = (rss_mb(Path(APP).name), rss_mb("veritas-engine"))
+        mem = (rss_mb(Path(APP).name), rss_mb("manent-engine"))
     if now >= next_report:
         rows.append((round((now - play_at) / 60), window, now - started - rolled, *mem))
         window, next_report = [], next_report + 300

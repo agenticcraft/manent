@@ -122,7 +122,7 @@ try:
             if page == "Settings":
                 info = js("return document.querySelector('[data-testid=app-info]')?.textContent")
                 if theme == "light":
-                    check(bool(info) and info.startswith("Veritas ") and "linux" in info, f"IPC app_info shown: '{info}'")
+                    check(bool(info) and info.startswith("Manent ") and "linux" in info, f"IPC app_info shown: '{info}'")
             bg = js("return getComputedStyle(document.body).backgroundColor")
             print(f"     {theme} {page}: body background {bg}")
             shot(f"{page.lower()}-{theme}")

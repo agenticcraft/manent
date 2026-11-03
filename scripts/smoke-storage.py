@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-storage.py <app binary> <data dir> <screenshot dir> <speech.wav> <move-to dir>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir>, a temp folder with the engine and model
+tauri-driver must run with MANENT_DATA_DIR=<data dir>, a temp folder with the engine and model
 downloaded and some meetings. Checks: the update interval is saved and used by the next
 recording; "Check model" finds a damaged file, which Download then restores; "Remove engine and
 model" deletes them (they are backed up with hard links first and put back afterwards);
@@ -103,7 +103,7 @@ s.invoke("set_rolling_interval", {"seconds": 45})
 before = s.invoke("get_app_settings")["meetings_dir"]
 moved = s.invoke("move_meetings", {"to": str(MOVE_TO)})
 s.check(isinstance(moved, dict) and moved["meetings_dir"] == str(MOVE_TO), f"meetings moved to {moved}")
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 dirs = [d for (d,) in con.execute("SELECT dir FROM meetings")]
 paths = [p for (p,) in con.execute("SELECT path FROM tracks")]
 con.close()
@@ -135,7 +135,7 @@ s.invoke("set_keep_audio", {"keep": "mix"})
 [job] = s.invoke("import_audio", {"paths": [str(SPEECH)]})
 s.check(wait_jobs(s), "import transcribed")
 job = next(j for j in s.invoke("list_jobs") if j["id"] == job)
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 mdir = con.execute("SELECT dir FROM meetings WHERE id = ?", (job["meeting_id"],)).fetchone()[0]
 tracks = [p for (p,) in con.execute("SELECT path FROM tracks WHERE meeting_id = ?", (job["meeting_id"],))]
 con.close()

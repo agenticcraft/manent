@@ -33,7 +33,7 @@ pub struct AppInfo {
 #[tauri::command]
 pub fn app_info() -> AppInfo {
     AppInfo {
-        name: "Veritas".into(),
+        name: "Manent".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         os: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),
@@ -1706,7 +1706,7 @@ mod tests {
     #[test]
     fn app_info_reports_crate_version() {
         let info = app_info();
-        assert_eq!(info.name, "Veritas");
+        assert_eq!(info.name, "Manent");
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert!(!info.os.is_empty());
     }

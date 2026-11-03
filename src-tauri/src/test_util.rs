@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub fn temp_dir() -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "veritas-test-{}-{}",
+        "manent-test-{}-{}",
         std::process::id(),
         N.fetch_add(1, Ordering::Relaxed)
     ));

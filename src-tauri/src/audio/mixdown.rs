@@ -220,7 +220,7 @@ fn opus_head(pre_skip: u16) -> Vec<u8> {
 
 /// RFC 7845 comment header (vendor string, no comments).
 fn opus_tags() -> Vec<u8> {
-    let vendor = b"Veritas";
+    let vendor = b"Manent";
     let mut t = b"OpusTags".to_vec();
     t.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
     t.extend_from_slice(vendor);

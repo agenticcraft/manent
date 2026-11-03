@@ -41,7 +41,7 @@ export function Speakers() {
       )}
       {people && people.length === 0 && (
         <EmptyState icon={Users} title="No known voices yet">
-          Name a speaker in a transcript and Veritas recognizes them in later meetings. Voice data
+          Name a speaker in a transcript and Manent recognizes them in later meetings. Voice data
           stays on this computer.
         </EmptyState>
       )}

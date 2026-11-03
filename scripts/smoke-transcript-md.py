@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-transcript-md.py <app binary> <data dir>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir>, a folder with transcribed meetings
+tauri-driver must run with MANENT_DATA_DIR=<data dir>, a folder with transcribed meetings
 (e.g. after smoke-import.py). Removes the files of some meetings first, so the app writes them
 again at startup (the backfill). Checks each file: a YAML header that a YAML parser reads, the
 same blocks as the app shows, the audio files that exist; then that renaming the meeting,
@@ -22,7 +22,7 @@ from wdlib import Session  # noqa: E402
 APP, DATA = sys.argv[1], Path(sys.argv[2])
 FILE = "transcript.md"
 
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 done = con.execute("""SELECT m.id, m.dir FROM meetings m WHERE m.status = 'done'
                       AND EXISTS (SELECT 1 FROM segments s WHERE s.meeting_id = m.id AND s.text != '')
                       ORDER BY m.id""").fetchall()
@@ -60,8 +60,8 @@ s.check(len(written) == len(done), f"backfill wrote {len(written)} of {len(done)
 mid, mdir = max(done, key=lambda m: len(s.invoke("live_transcript", {"meetingId": m[0]})))
 head, blocks, text = read(mdir)
 meeting = s.invoke("get_meeting", {"id": mid})
-s.check(head["veritas"] == 1 and head["id"] == mid and head["duration_ms"] == meeting["duration_ms"]
-        and head["pass"] == "final", f"header: {dict((k, head[k]) for k in ['veritas', 'id', 'title', 'duration_ms', 'pass'])}")
+s.check(head["manent"] == 1 and head["id"] == mid and head["duration_ms"] == meeting["duration_ms"]
+        and head["pass"] == "final", f"header: {dict((k, head[k]) for k in ['manent', 'id', 'title', 'duration_ms', 'pass'])}")
 s.check(head["audio"] and all((Path(mdir) / a).is_file() for a in head["audio"]), f"audio files exist: {head['audio']}")
 words_app = sum(len(x["text"].split()) for x in s.invoke("live_transcript", {"meetingId": mid}))
 words_md = sum(len(b[2].split()) for b in blocks)

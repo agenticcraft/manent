@@ -66,7 +66,7 @@ mod tests {
         let pid = std::process::id().to_string();
         String::from_utf8_lossy(&out.stdout)
             .lines()
-            .any(|l| l.contains("Veritas") && l.contains(&format!("unit test {pid}")))
+            .any(|l| l.contains("Manent") && l.contains(&format!("unit test {pid}")))
     }
 
     #[test]

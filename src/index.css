@@ -7,7 +7,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Veritas design tokens (doc-3 UI design): calm and document-like.
+ * Manent design tokens (doc-3 UI design): calm and document-like.
  * Zinc neutrals, one accent (indigo), a soft red only for recording,
  * and muted pastel colors for speaker chips.
  */
@@ -43,7 +43,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Veritas-specific */
+  /* Manent-specific */
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-recording: var(--recording);

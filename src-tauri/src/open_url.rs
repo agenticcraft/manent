@@ -3,7 +3,7 @@
 
 pub fn open(url: &str) {
     // Tests drive the app without a desktop browser (they approve the login themselves).
-    if std::env::var_os("VERITAS_NO_BROWSER").is_some() {
+    if crate::legacy::env_var("NO_BROWSER").is_some() {
         eprintln!("open in the browser: {url}");
         return;
     }

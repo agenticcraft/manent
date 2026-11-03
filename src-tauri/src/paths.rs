@@ -1,10 +1,12 @@
-//! Where Veritas keeps its data: the database and one folder per meeting.
+//! Where Manent keeps its data: the database and one folder per meeting.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 /// Environment override for the data folder (tests and the UI smoke check use a temp folder).
-pub const DATA_DIR_ENV: &str = "VERITAS_DATA_DIR";
+pub const DATA_DIR_ENV: &str = "MANENT_DATA_DIR";
+/// The database file in the data folder (it was veritas.db before VRT-44).
+pub const DATABASE_FILE: &str = "manent.db";
 
 /// Settings key of a meetings folder outside the data folder (Settings > Storage, VRT-27).
 pub const MEETINGS_DIR_SETTING: &str = "storage.meetings_dir";
@@ -24,9 +26,9 @@ impl AppPaths {
         }
     }
 
-    /// `VERITAS_DATA_DIR` if set, otherwise the OS app data folder.
+    /// `MANENT_DATA_DIR` if set, otherwise the OS app data folder.
     pub fn resolve(app_data_dir: PathBuf) -> Self {
-        let data = std::env::var_os(DATA_DIR_ENV)
+        let data = crate::legacy::env_var(DATA_DIR_ENV.trim_start_matches("MANENT_"))
             .map(PathBuf::from)
             .unwrap_or(app_data_dir);
         Self::new(data)
@@ -38,7 +40,7 @@ impl AppPaths {
     }
 
     pub fn database(&self) -> PathBuf {
-        self.data.join("veritas.db")
+        self.data.join(DATABASE_FILE)
     }
 
     /// Where the meeting folders are: the chosen folder, or `<data>/meetings`.
@@ -160,7 +162,7 @@ fn resolved(path: &Path) -> std::io::Result<PathBuf> {
     }
 }
 
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;

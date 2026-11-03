@@ -1,7 +1,7 @@
-//! Nextcloud sync (VRT-39, decision-5, decision-7): Veritas talks WebDAV to a folder on the
+//! Nextcloud sync (VRT-39, decision-5, decision-7): Manent talks WebDAV to a folder on the
 //! user's own Nextcloud, without the Nextcloud client apps.
 //!
-//! - **Connect:** Login Flow v2. The browser opens; Veritas polls for an app password that
+//! - **Connect:** Login Flow v2. The browser opens; Manent polls for an app password that
 //!   goes only into the OS keychain. Disconnect revokes it on the server.
 //! - **Inbox:** recordings the phone puts in `<folder>/Inbox/` (with an optional
 //!   `<name>.meta.json`: title and start time) are downloaded and imported (VRT-19). Once
@@ -42,8 +42,10 @@ pub const SERVER_SETTING: &str = "sync.server";
 pub const LOGIN_SETTING: &str = "sync.login";
 pub const FOLDER_SETTING: &str = "sync.folder";
 pub const MODE_SETTING: &str = "sync.mode";
-const KEYCHAIN_SERVICE: &str = "veritas-nextcloud";
-const DEFAULT_FOLDER: &str = "Veritas";
+const KEYCHAIN_SERVICE: &str = "manent-nextcloud";
+/// Where the app password was kept before the rename (VRT-44).
+const OLD_KEYCHAIN_SERVICE: &str = "veritas-nextcloud";
+const DEFAULT_FOLDER: &str = "Manent";
 /// Nextcloud's own `pollinterval` capability is 60 s by default.
 const POLL: Duration = Duration::from_secs(60);
 /// Audio and video the import understands (decision-3).
@@ -214,9 +216,23 @@ impl Sync {
         let login = self.setting(LOGIN_SETTING).await?;
         let (s, l) = (server.clone(), login.clone());
         let password = blocking(move || {
-            keychain(&s, &l)?
-                .get_password()
-                .map_err(|e| format!("the app password is not in the keychain: {e}"))
+            let entry = keychain(&s, &l)?;
+            match entry.get_password() {
+                Ok(p) => Ok(p),
+                // Connected before the rename (VRT-44): move the entry to the new service.
+                Err(e) => match keyring::Entry::new(OLD_KEYCHAIN_SERVICE, &format!("{l}@{s}"))
+                    .and_then(|old| old.get_password().map(|p| (old, p)))
+                {
+                    Ok((old, p)) => {
+                        entry
+                            .set_password(&p)
+                            .map_err(|e| format!("keychain: {e}"))?;
+                        let _ = old.delete_credential();
+                        Ok(p)
+                    }
+                    Err(_) => Err(format!("the app password is not in the keychain: {e}")),
+                },
+            }
         })
         .await;
         match password {
@@ -896,13 +912,13 @@ mod tests {
 
     #[test]
     fn only_media_files_are_picked_up_from_the_inbox() {
-        assert!(is_media("Veritas/Inbox/rec 1.opus"));
-        assert!(is_media("Veritas/Inbox/rec.M4A"));
-        assert!(!is_media("Veritas/Inbox/rec.meta.json"));
-        assert!(!is_media("Veritas/Inbox/.rec.opus.part"));
-        assert!(!is_media("Veritas/Inbox/notes.txt"));
-        assert_eq!(strip_ext("Veritas/Inbox/rec 1.opus"), "Veritas/Inbox/rec 1");
-        assert_eq!(strip_ext("Veritas/In.box/rec"), "Veritas/In.box/rec");
+        assert!(is_media("Manent/Inbox/rec 1.opus"));
+        assert!(is_media("Manent/Inbox/rec.M4A"));
+        assert!(!is_media("Manent/Inbox/rec.meta.json"));
+        assert!(!is_media("Manent/Inbox/.rec.opus.part"));
+        assert!(!is_media("Manent/Inbox/notes.txt"));
+        assert_eq!(strip_ext("Manent/Inbox/rec 1.opus"), "Manent/Inbox/rec 1");
+        assert_eq!(strip_ext("Manent/In.box/rec"), "Manent/In.box/rec");
     }
 
     #[test]

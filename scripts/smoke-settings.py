@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-settings.py <app binary> <data dir> <screenshot dir>
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (an empty temp folder).
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (an empty temp folder).
 Briefly switches the OS default microphone with pactl to check that "System default"
 follows it, and always restores the original default.
 """
@@ -45,7 +45,7 @@ def meters(s):
 
 
 def setting(key):
-    con = sqlite3.connect(DATA / "veritas.db")
+    con = sqlite3.connect(DATA / "manent.db")
     row = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     con.close()
     return json.loads(row[0]) if row else None
@@ -82,7 +82,7 @@ def app_stream_sources():
     sources = {l.split("\t")[0]: l.split("\t")[1] for l in pactl("list", "short", "sources").splitlines()}
     found = []
     for block in pactl("list", "source-outputs").split("\n\n"):
-        if re.search(r'(application|node)\.name = "(veritas|cpal)', block, re.I) or "veritas" in block.lower():
+        if re.search(r'(application|node)\.name = "(manent|cpal)', block, re.I) or "manent" in block.lower():
             m = re.search(r"Source: (\d+)", block)
             if m:
                 found.append(sources.get(m.group(1), m.group(1)))

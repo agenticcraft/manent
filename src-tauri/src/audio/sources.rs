@@ -1,4 +1,4 @@
-//! Audio source descriptions and the mapping from OS devices to Veritas sources.
+//! Audio source descriptions and the mapping from OS devices to Manent sources.
 
 use serde::Serialize;
 

@@ -1,7 +1,7 @@
-//! veritas-engine: runs libparakeet (parakeet.cpp's C API, ABI v10) in its own process, so
+//! manent-engine: runs libparakeet (parakeet.cpp's C API, ABI v10) in its own process, so
 //! an engine crash or out-of-memory never takes a recording down (decision-1, doc-2 §1.3).
 //!
-//! Usage: veritas-engine --lib <libparakeet.so> --model <parakeet-bundle-standard.gguf>
+//! Usage: manent-engine --lib <libparakeet.so> --model <parakeet-bundle-standard.gguf>
 //!
 //! Protocol: JSON lines. On start the helper loads the model and prints one line,
 //! `{"event":"ready","abi":10,"components":[..],"load_ms":..,"backends":..}` or
@@ -100,7 +100,7 @@ fn main() {
     let (Some(lib), Some(model)) = (arg(&args, "--lib"), arg(&args, "--model")) else {
         emit(
             &out,
-            &json!({"event": "failed", "error": "usage: veritas-engine --lib <libparakeet> --model <bundle.gguf>"}),
+            &json!({"event": "failed", "error": "usage: manent-engine --lib <libparakeet> --model <bundle.gguf>"}),
         );
         std::process::exit(2);
     };

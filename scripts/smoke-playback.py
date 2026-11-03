@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-playback.py <app binary> <data dir> <screenshot dir> [<tone.wav>]
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (an empty temp folder). Needs audio
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (an empty temp folder). Needs audio
 hardware; the optional WAV is played (quietly) so the mix contains a known tone.
 """
 import math
@@ -30,7 +30,7 @@ s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 15)
 if player:
     player.terminate()
 
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 meeting_id, folder, duration_ms = con.execute("SELECT id, dir, duration_ms FROM meetings").fetchone()
 con.close()
 mix = Path(folder) / "mix.opus"

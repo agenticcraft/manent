@@ -22,7 +22,7 @@ export function Sidebar<K extends string>({ items, active, onSelect, recording }
       aria-label="Main"
       className="flex w-52 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 py-5 text-sidebar-foreground"
     >
-      <div className="mb-6 px-2 text-sm font-semibold tracking-tight text-foreground">Veritas</div>
+      <div className="mb-6 px-2 text-sm font-semibold tracking-tight text-foreground">Manent</div>
       {recording && (
         <button
           type="button"

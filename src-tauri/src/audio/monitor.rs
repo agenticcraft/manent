@@ -27,7 +27,7 @@ impl Monitor {
         let (stop, rx) = mpsc::channel::<()>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), RecorderError>>();
         let thread = std::thread::Builder::new()
-            .name("veritas-monitor".into())
+            .name("manent-monitor".into())
             .spawn(move || {
                 let mut streams = Vec::new();
                 let mut inputs: Vec<(SourceInfo, RingReader)> = Vec::new();

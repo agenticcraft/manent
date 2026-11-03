@@ -3,7 +3,7 @@
 Usage: python3 scripts/smoke-naming.py <app binary> <data dir> <shots> <first.wav> <second.wav>
                                        [--names voice=Name,...] [--merge-delete]
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (with the engine and model). Both WAVs
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (with the engine and model). Both WAVs
 need `<wav>.truth.json` (segments with start, end, voice) and are played on the default output
 (60% volume; loudness-normalised files). Meeting 1: every voice is named after its truth voice
 (or --names), the first through the speaker popover in the UI. With --merge-delete the Speakers
@@ -70,7 +70,7 @@ def stop_and_finish(s, meeting):
 
 def label_voices(meeting, offset_ms, segments):
     """Truth voice -> the label most of its words got (system track), plus word counts."""
-    con = sqlite3.connect(DATA / "veritas.db")
+    con = sqlite3.connect(DATA / "manent.db")
     rows = con.execute("""SELECT s.speaker_label, s.words_json FROM segments s JOIN tracks t ON t.id = s.track_id
                           WHERE s.meeting_id = ? AND t.source_kind = 'loopback'""", (meeting,)).fetchall()
     con.close()
@@ -88,7 +88,7 @@ def label_voices(meeting, offset_ms, segments):
 
 def named_words(meeting, offset_ms, segments):
     """(truth voice, person name or None) -> words, for the system track."""
-    con = sqlite3.connect(DATA / "veritas.db")
+    con = sqlite3.connect(DATA / "manent.db")
     rows = con.execute("""SELECT sp.name, s.words_json FROM segments s JOIN tracks t ON t.id = s.track_id
                           LEFT JOIN speakers sp ON sp.id = s.speaker_id
                           WHERE s.meeting_id = ? AND t.source_kind = 'loopback'""", (meeting,)).fetchall()
@@ -163,7 +163,7 @@ if MERGE_DELETE:
     s.wait_for("return document.querySelector('[data-testid=confirm-delete-person]')", 3)
     s.js("document.querySelector('[data-testid=confirm-delete-person]').click()")
     time.sleep(0.8)
-    con = sqlite3.connect(DATA / "veritas.db")
+    con = sqlite3.connect(DATA / "manent.db")
     left = con.execute("SELECT COUNT(*) FROM voice_samples WHERE speaker_id = ?", (pid,)).fetchone()[0]
     con.close()
     s.check(deleted not in {p["name"] for p in s.invoke("list_people")} and left == 0,

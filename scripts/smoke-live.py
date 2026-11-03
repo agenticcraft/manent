@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/smoke-live.py <app binary> <data dir> <screenshot dir> [<tone.wav>]
 
-tauri-driver must run with VERITAS_DATA_DIR=<data dir> (an empty temp folder). Needs audio
+tauri-driver must run with MANENT_DATA_DIR=<data dir> (an empty temp folder). Needs audio
 hardware. If a WAV is given it is played (quietly) so the system-audio meter has signal.
 """
 import sqlite3
@@ -59,7 +59,7 @@ set_value = ("const i = document.querySelector('[data-testid=meeting-title-input
 s.js(set_value, "Smoke test meeting")
 time.sleep(0.5)
 meeting_id = s.invoke("current_recording")["meeting_id"]
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 title = con.execute("SELECT title FROM meetings WHERE id = ?", (meeting_id,)).fetchone()[0]
 con.close()
 s.check(title == "Smoke test meeting", f"title persisted while recording: '{title}'")
@@ -103,7 +103,7 @@ s.screenshot(OUT / "library-after-recording.png")
 s.close()
 
 # Database and files
-con = sqlite3.connect(DATA / "veritas.db")
+con = sqlite3.connect(DATA / "manent.db")
 status, duration_ms, folder = con.execute("SELECT status, duration_ms, dir FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
 tracks = con.execute("SELECT source_kind, path, seconds FROM tracks WHERE meeting_id = ? ORDER BY id", (meeting_id,)).fetchall()
 con.close()
