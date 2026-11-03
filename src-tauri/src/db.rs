@@ -86,6 +86,29 @@ pub struct Segment {
     pub words_json: Option<String>,
 }
 
+/// A meeting's folder on the Nextcloud server (VRT-39).
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct SyncMeeting {
+    pub meeting_id: i64,
+    pub remote_dir: String,
+    /// "phone" (came in through the inbox) or "desktop".
+    pub origin: String,
+    pub transcript_hash: Option<String>,
+    pub mix_uploaded: bool,
+    pub gone: bool,
+}
+
+/// A recording found in the Nextcloud inbox (VRT-39).
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct InboxItem {
+    pub remote_path: String,
+    pub etag: String,
+    pub meeting_id: Option<i64>,
+    /// "importing", "done" or "failed".
+    pub state: String,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NewSegment {
     pub track_id: Option<i64>,
@@ -211,6 +234,117 @@ impl Db {
             .bind(duration_ms)
             .bind(status)
             .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Nextcloud sync (VRT-39): a meeting's folder on the server.
+    pub async fn sync_meeting(&self, meeting_id: i64) -> Result<Option<SyncMeeting>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM sync_meetings WHERE meeting_id = ?")
+                .bind(meeting_id)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn sync_meetings(&self) -> Result<Vec<SyncMeeting>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM sync_meetings ORDER BY meeting_id")
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn add_sync_meeting(
+        &self,
+        meeting_id: i64,
+        remote_dir: &str,
+        origin: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO sync_meetings (meeting_id, remote_dir, origin) VALUES (?, ?, ?)
+             ON CONFLICT (meeting_id) DO UPDATE SET remote_dir = excluded.remote_dir, gone = 0",
+        )
+        .bind(meeting_id)
+        .bind(remote_dir)
+        .bind(origin)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_sync_uploaded(
+        &self,
+        meeting_id: i64,
+        transcript_hash: Option<&str>,
+        mix_uploaded: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE sync_meetings SET transcript_hash = ?, mix_uploaded = ? WHERE meeting_id = ?",
+        )
+        .bind(transcript_hash)
+        .bind(mix_uploaded)
+        .bind(meeting_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_sync_gone(&self, meeting_id: i64) -> Result<()> {
+        sqlx::query("UPDATE sync_meetings SET gone = 1 WHERE meeting_id = ?")
+            .bind(meeting_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Forget all sync state (disconnect).
+    pub async fn clear_sync(&self) -> Result<()> {
+        sqlx::query("DELETE FROM sync_meetings")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM sync_inbox")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn inbox_items(&self) -> Result<Vec<InboxItem>> {
+        Ok(
+            sqlx::query_as("SELECT * FROM sync_inbox ORDER BY remote_path")
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn set_inbox_item(
+        &self,
+        remote_path: &str,
+        etag: &str,
+        meeting_id: Option<i64>,
+        state: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO sync_inbox (remote_path, etag, meeting_id, state, error) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (remote_path) DO UPDATE SET etag = excluded.etag,
+                 meeting_id = excluded.meeting_id, state = excluded.state, error = excluded.error",
+        )
+        .bind(remote_path)
+        .bind(etag)
+        .bind(meeting_id)
+        .bind(state)
+        .bind(error)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_inbox_item(&self, remote_path: &str) -> Result<()> {
+        sqlx::query("DELETE FROM sync_inbox WHERE remote_path = ?")
+            .bind(remote_path)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -748,6 +882,14 @@ impl Db {
             .transpose()
     }
 
+    pub async fn delete_setting(&self, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(key)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn set_setting<T: Serialize>(&self, key: &str, value: &T) -> Result<()> {
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES (?, ?)
@@ -814,6 +956,46 @@ mod tests {
             text: text.into(),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn sync_rows_round_trip_and_go_with_the_meeting() {
+        let db = db().await;
+        let m = db.create_meeting("Planning", 1_000, "/m/p").await.unwrap();
+        db.add_sync_meeting(m, "Veritas/2026-11-02 14.05 Planning", "phone")
+            .await
+            .unwrap();
+        db.set_sync_uploaded(m, Some("abc"), true).await.unwrap();
+        let row = db.sync_meeting(m).await.unwrap().unwrap();
+        assert_eq!(
+            (
+                row.origin.as_str(),
+                row.transcript_hash.as_deref(),
+                row.mix_uploaded,
+                row.gone
+            ),
+            ("phone", Some("abc"), true, false)
+        );
+        db.set_inbox_item("Veritas/Inbox/a.opus", "e1", None, "importing", None)
+            .await
+            .unwrap();
+        db.set_inbox_item("Veritas/Inbox/a.opus", "e1", Some(m), "done", None)
+            .await
+            .unwrap();
+        let items = db.inbox_items().await.unwrap();
+        assert_eq!(
+            (items.len(), items[0].meeting_id, items[0].state.as_str()),
+            (1, Some(m), "done")
+        );
+        db.delete_meeting(m).await.unwrap();
+        assert!(db.sync_meeting(m).await.unwrap().is_none(), "cascade");
+        assert_eq!(
+            db.inbox_items().await.unwrap()[0].meeting_id,
+            None,
+            "set null: still known"
+        );
+        db.clear_sync().await.unwrap();
+        assert!(db.inbox_items().await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1241,6 +1423,6 @@ mod tests {
             .fetch_one(&db.pool)
             .await
             .unwrap();
-        assert_eq!(migrations.0, 4, "each migration applied once");
+        assert_eq!(migrations.0, 5, "each migration applied once");
     }
 }

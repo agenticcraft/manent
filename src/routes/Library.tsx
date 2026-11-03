@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { JobsPanel } from "@/components/JobsPanel";
 import { MeetingRow } from "@/components/MeetingRow";
 import { PageHeader } from "@/components/PageHeader";
+import { SyncLine } from "@/components/SyncLine";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatDateTime, formatDuration, meetingTitle } from "@/lib/format";
@@ -95,9 +96,9 @@ export function Library({
     return meetings.filter((m) => meetingTitle(m).text.toLocaleLowerCase().includes(q));
   }, [meetings, query]);
 
-  const remove = async (id: number) => {
+  const remove = async (id: number, alsoRemote: boolean) => {
     try {
-      await call("delete_meeting", { id });
+      await call("delete_meeting", { id, alsoRemote });
       setMeetings((ms) => ms?.filter((m) => m.id !== id) ?? null);
     } catch (e) {
       setError(String(e));
@@ -134,6 +135,7 @@ export function Library({
   return (
     <>
       <PageHeader title="Library" actions={actions} />
+      <SyncLine />
       {error && (
         <p role="alert" className="mb-4 text-sm text-destructive">
           {error}

@@ -190,6 +190,25 @@ export interface MeetingSummary {
   status: MeetingStatus;
   dir: string;
   speakers: Speaker[];
+  /** Has a folder on the Nextcloud server (VRT-39). */
+  synced: boolean;
+}
+
+/** Nextcloud sync (Rust: sync::SyncStatus, VRT-39). */
+export interface SyncStatus {
+  state: "off" | "connecting" | "idle" | "syncing" | "error";
+  server: string | null;
+  login: string | null;
+  folder: string;
+  /** "phone": recordings from the phone only; "all": also every desktop meeting. */
+  mode: "phone" | "all";
+  /** While connecting: the page opened in the browser. */
+  login_url: string | null;
+  /** Unix ms of the last complete round. */
+  last_sync: number | null;
+  error: string | null;
+  /** Plain http: not encrypted. */
+  insecure: boolean;
 }
 
 /** Settings > Sources (Rust: commands::SourceSettings). */
@@ -267,7 +286,15 @@ export interface Commands {
   start_source_monitor: { args: { sourceIds: string[] }; result: null };
   stop_source_monitor: { args: NoArgs; result: null };
   list_meetings: { args: NoArgs; result: MeetingSummary[] };
-  delete_meeting: { args: { id: number }; result: boolean };
+  delete_meeting: { args: { id: number; alsoRemote?: boolean }; result: boolean };
+  sync_status: { args: NoArgs; result: SyncStatus };
+  sync_connect: { args: { server: string }; result: string };
+  sync_cancel_connect: { args: NoArgs; result: null };
+  sync_open_login: { args: NoArgs; result: null };
+  sync_disconnect: { args: NoArgs; result: null };
+  sync_set_mode: { args: { mode: SyncStatus["mode"] }; result: null };
+  sync_now: { args: NoArgs; result: null };
+  set_utc_offset: { args: { minutes: number }; result: null };
   get_meeting: { args: { id: number }; result: MeetingDetail | null };
   live_transcript: { args: { meetingId: number }; result: TranscriptSegment[] };
   get_me_name: { args: NoArgs; result: string };
@@ -326,6 +353,8 @@ export interface Events {
   "recording:started": RecordingStarted;
   /** The meeting id of the recording that stopped. */
   "recording:stopped": number;
+  /** Nextcloud sync state changed (VRT-39). */
+  "sync:changed": SyncStatus;
 }
 
 type ArgsOf<K extends keyof Commands> = Commands[K]["args"] extends NoArgs

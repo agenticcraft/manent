@@ -64,6 +64,17 @@ export default function App() {
     });
   }, []);
 
+  // Nextcloud sync (VRT-39): folder names use local time; coming back to the window checks
+  // for new recordings at once.
+  useEffect(() => {
+    call("set_utc_offset", { minutes: -new Date().getTimezoneOffset() }).catch(() => {});
+    const onFocus = () => {
+      call("sync_now").catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
   // The tray starts and stops recordings too: follow them (VRT-22).
   useEffect(() => {
     const offStarted = on("recording:started", (s) => {

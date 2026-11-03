@@ -12,11 +12,13 @@ mod export;
 mod jobs;
 mod live;
 mod media_server;
+mod open_url;
 mod passes;
 mod paths;
 mod power;
 mod rolling;
 mod speakers;
+mod sync;
 #[cfg(test)]
 mod test_util;
 mod transcript_md;
@@ -70,6 +72,13 @@ pub fn run() {
             }
             // Meetings from before VRT-37 get their transcript.md.
             transcript_md::spawn_backfill(db.clone());
+            // Nextcloud sync (VRT-39): idle until connected.
+            app.manage(sync::Sync::start(
+                Some(app.handle().clone()),
+                db.clone(),
+                jobs.clone(),
+                paths.clone(),
+            ));
             app.manage(db);
             // Tray icon (VRT-22); the app works without one (e.g. a desktop without a tray).
             if let Err(e) = tray::build(app.handle()) {
@@ -119,6 +128,14 @@ pub fn run() {
             commands::set_me_name,
             commands::meeting_voices,
             commands::meeting_gaps,
+            commands::sync_status,
+            commands::sync_connect,
+            commands::sync_cancel_connect,
+            commands::sync_open_login,
+            commands::sync_disconnect,
+            commands::sync_set_mode,
+            commands::sync_now,
+            commands::set_utc_offset,
             commands::name_speaker,
             commands::confirm_suggestion,
             commands::merge_labels,

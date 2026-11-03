@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { SourcesSettings } from "@/components/SourcesSettings";
 import { StorageSettings } from "@/components/StorageSettings";
+import { SyncSettings } from "@/components/SyncSettings";
 import { TranscriptionSettings } from "@/components/TranscriptionSettings";
 import { call, type AppInfo } from "@/lib/ipc";
 
@@ -15,6 +16,11 @@ const SECTIONS = [
     title: "Transcription",
     text: "The engine and model run locally. Dutch and English are detected automatically.",
     body: <TranscriptionSettings />,
+  },
+  {
+    title: "Nextcloud",
+    text: "Sync recordings and transcripts with a folder in your own Nextcloud. Off unless you connect.",
+    body: <SyncSettings />,
   },
   {
     title: "Storage",

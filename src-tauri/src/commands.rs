@@ -624,6 +624,8 @@ pub struct MeetingSummary {
     #[serde(flatten)]
     pub meeting: Meeting,
     pub speakers: Vec<Speaker>,
+    /// Has a folder on the Nextcloud server (VRT-39).
+    pub synced: bool,
 }
 
 /// All meetings, newest first.
@@ -631,6 +633,14 @@ pub struct MeetingSummary {
 pub async fn list_meetings(db: State<'_, Db>) -> Result<Vec<MeetingSummary>, String> {
     let meetings = db.list_meetings().await.map_err(|e| e.to_string())?;
     let mut speakers = db.meeting_speakers().await.map_err(|e| e.to_string())?;
+    let synced: Vec<i64> = db
+        .sync_meetings()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|s| !s.gone)
+        .map(|s| s.meeting_id)
+        .collect();
     Ok(meetings
         .into_iter()
         .map(|meeting| {
@@ -639,6 +649,7 @@ pub async fn list_meetings(db: State<'_, Db>) -> Result<Vec<MeetingSummary>, Str
                 .map(|(_, s)| s)
                 .collect();
             MeetingSummary {
+                synced: synced.contains(&meeting.id),
                 meeting,
                 speakers: mine,
             }
@@ -677,11 +688,20 @@ pub async fn get_meeting(
 pub async fn delete_meeting(
     db: State<'_, Db>,
     paths: State<'_, AppPaths>,
+    sync: State<'_, crate::sync::Sync>,
     id: i64,
+    also_remote: Option<bool>,
 ) -> Result<bool, String> {
     let Some(meeting) = db.get_meeting(id).await.map_err(|e| e.to_string())? else {
         return Ok(false);
     };
+    // Its folder on Nextcloud too, when the user chose so (VRT-39); first, so a failure
+    // leaves everything as it was.
+    if also_remote == Some(true) {
+        sync.delete_remote(id)
+            .await
+            .map_err(|e| format!("Could not remove it from Nextcloud: {e}"))?;
+    }
     if let Some(dir) = paths.contained_meeting_dir(std::path::Path::new(&meeting.dir)) {
         std::fs::remove_dir_all(&dir)
             .map_err(|e| format!("could not delete {}: {e}", dir.display()))?;
@@ -1698,4 +1718,55 @@ mod tests {
             assert!(json.get(field).is_some(), "missing {field}");
         }
     }
+}
+
+// ---- Nextcloud sync (VRT-39) ----
+
+#[tauri::command]
+pub fn sync_status(sync: State<'_, crate::sync::Sync>) -> crate::sync::SyncStatus {
+    sync.status()
+}
+
+/// Start connecting: returns the login page (also opened in the browser).
+#[tauri::command]
+pub async fn sync_connect(
+    sync: State<'_, crate::sync::Sync>,
+    server: String,
+) -> Result<String, String> {
+    sync.connect(server).await
+}
+
+/// Open the login page of a connection in progress again (the browser window was closed).
+#[tauri::command]
+pub fn sync_open_login(sync: State<'_, crate::sync::Sync>) {
+    if let Some(url) = sync.status().login_url {
+        crate::open_url::open(&url);
+    }
+}
+
+#[tauri::command]
+pub fn sync_cancel_connect(sync: State<'_, crate::sync::Sync>) {
+    sync.cancel_connect();
+}
+
+#[tauri::command]
+pub async fn sync_disconnect(sync: State<'_, crate::sync::Sync>) -> Result<(), String> {
+    sync.disconnect().await
+}
+
+#[tauri::command]
+pub async fn sync_set_mode(sync: State<'_, crate::sync::Sync>, mode: String) -> Result<(), String> {
+    sync.set_mode(&mode).await
+}
+
+/// A round now ("Sync now", or the window came to the front).
+#[tauri::command]
+pub fn sync_now() {
+    crate::sync::wake();
+}
+
+/// The UI's UTC offset, for folder names in local time.
+#[tauri::command]
+pub fn set_utc_offset(minutes: i32) {
+    crate::sync::set_utc_offset(minutes);
 }

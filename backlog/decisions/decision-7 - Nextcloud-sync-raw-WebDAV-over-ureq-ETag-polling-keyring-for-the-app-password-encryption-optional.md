@@ -55,3 +55,12 @@ decision-5 makes a folder on the user's own Nextcloud a meeting place for deskto
   - the phone side: Tauri mobile, the Android keystore, background uploads (VRT-26.3);
   - servers with a self-signed certificate: rustls without the system store refuses them, so certificate pinning or a CA option needs a decision in VRT-39;
   - two-factor accounts: Login Flow v2 handles them in the browser, but this was not tested.
+
+## Settled while building (VRT-39)
+
+- **Certificates:** the sync connection checks HTTPS against the **operating system's trust store** (ureq's `platform-verifier`, i.e. rustls-platform-verifier). A server with a self-signed or private-CA certificate works once the user trusts that certificate on the computer, as for any other program. Veritas has no exceptions or pinning of its own. Plain `http://` is allowed (for a server on the home network), and Settings warns that it is not encrypted.
+- **Two-factor accounts** need nothing extra: the second factor is entered in the browser during Login Flow v2. This was not tested against a 2FA account.
+- **The sync mode resets on disconnect.** A later connection starts with "Recordings from the phone" and never uploads every meeting to a new server unasked.
+- **Folder names use local time.** The Rust side can't safely read the local time zone in a multi-threaded process, so the UI passes its UTC offset at startup, and sync waits for it. Near a daylight-saving change, an old meeting's folder name can be off by an hour; the exact time is in `transcript.md`.
+- **Opus imports:** phones record Opus, which symphonia can't decode. The import decodes Opus (in Ogg or WebM) with libopus, which the app already has for the playback file.
+

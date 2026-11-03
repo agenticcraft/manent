@@ -338,6 +338,8 @@ pub async fn write(db: &Db, id: i64) -> Result<Option<PathBuf>, String> {
     std::fs::write(&tmp, render(&header, &blocks))
         .and_then(|()| std::fs::rename(&tmp, &path))
         .map_err(|e| format!("can't write {}: {e}", path.display()))?;
+    // A changed transcript goes to Nextcloud at once when sync is on (VRT-39).
+    crate::sync::wake();
     Ok(Some(path))
 }
 

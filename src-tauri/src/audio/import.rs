@@ -6,6 +6,7 @@ use std::fs::File;
 use std::path::Path;
 
 use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, TrackType};
@@ -64,9 +65,17 @@ pub fn import_to_flac(
         .and_then(|p| p.audio())
         .ok_or_else(|| ImportError::NoAudio(name.clone()))?
         .clone();
-    let mut decoder = symphonia::default::get_codecs()
+    // Symphonia has no Opus decoder: Opus (in Ogg or WebM, as phones record it, VRT-39) is
+    // decoded with libopus, which the app already has for the playback file.
+    let mut decoder = match symphonia::default::get_codecs()
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
-        .map_err(|_| ImportError::Unsupported(name.clone()))?;
+    {
+        Ok(d) => Decoder::Symphonia(d),
+        Err(_) if params.codec == CODEC_ID_OPUS => {
+            Decoder::opus(&params).map_err(|e| ImportError::Decode(name.clone(), e.to_string()))?
+        }
+        Err(_) => return Err(ImportError::Unsupported(name.clone())),
+    };
 
     let mut writer: Option<FlacWriter> = None;
     let mut interleaved: Vec<f32> = Vec::new();
@@ -85,16 +94,12 @@ pub fn import_to_flac(
         if packet.track_id != track_id {
             continue;
         }
-        let buf = match decoder.decode(&packet) {
-            Ok(b) => b,
+        let (rate, channels) = match decoder.decode(&packet, &mut interleaved) {
+            Ok(Some(spec)) => spec,
             // One damaged packet is skipped, like a player does.
-            Err(SymphoniaError::DecodeError(_)) => continue,
-            Err(e) => return Err(ImportError::Decode(name, e.to_string())),
+            Ok(None) => continue,
+            Err(e) => return Err(ImportError::Decode(name, e)),
         };
-        let channels = buf.spec().channels().count().max(1);
-        let rate = buf.spec().rate();
-        interleaved.resize(buf.samples_interleaved(), 0.0);
-        buf.copy_to_slice_interleaved(&mut interleaved);
         mono.clear();
         mono.extend(
             interleaved
@@ -116,6 +121,86 @@ pub fn import_to_flac(
     writer.finish()?;
     progress(1.0);
     Ok(seconds)
+}
+
+/// Symphonia's decoders, or libopus for Opus.
+enum Decoder {
+    Symphonia(Box<dyn symphonia::core::codecs::audio::AudioDecoder>),
+    Opus {
+        dec: opus::Decoder,
+        channels: usize,
+        /// Samples per channel still to drop at the start (the encoder's pre-skip).
+        skip: usize,
+        out: Vec<f32>,
+    },
+}
+
+impl Decoder {
+    fn opus(
+        params: &symphonia::core::codecs::audio::AudioCodecParameters,
+    ) -> Result<Self, opus::Error> {
+        let channels = params
+            .channels
+            .as_ref()
+            .map_or(1, |c| c.count())
+            .clamp(1, 2);
+        // OpusHead (RFC 7845): "OpusHead", version, channel count, pre-skip (u16 LE), ...
+        let skip = params
+            .extra_data
+            .as_deref()
+            .filter(|h| h.len() >= 12 && &h[..8] == b"OpusHead")
+            .map_or(312, |h| usize::from(u16::from_le_bytes([h[10], h[11]])));
+        let ch = if channels == 2 {
+            opus::Channels::Stereo
+        } else {
+            opus::Channels::Mono
+        };
+        Ok(Self::Opus {
+            dec: opus::Decoder::new(48_000, ch)?,
+            channels,
+            skip,
+            out: vec![0.0; 5760 * 2],
+        })
+    }
+
+    /// Decode one packet into interleaved samples: Ok(Some((rate, channels))), Ok(None) for a
+    /// damaged packet (skipped), or an error that ends the import.
+    fn decode(
+        &mut self,
+        packet: &symphonia::core::packet::Packet,
+        interleaved: &mut Vec<f32>,
+    ) -> Result<Option<(u32, usize)>, String> {
+        match self {
+            Self::Symphonia(d) => {
+                let buf = match d.decode(packet) {
+                    Ok(b) => b,
+                    Err(SymphoniaError::DecodeError(_)) => return Ok(None),
+                    Err(e) => return Err(e.to_string()),
+                };
+                let channels = buf.spec().channels().count().max(1);
+                let rate = buf.spec().rate();
+                interleaved.resize(buf.samples_interleaved(), 0.0);
+                buf.copy_to_slice_interleaved(interleaved);
+                Ok(Some((rate, channels)))
+            }
+            Self::Opus {
+                dec,
+                channels,
+                skip,
+                out,
+            } => {
+                let n = match dec.decode_float(&packet.data, out, false) {
+                    Ok(n) => n,
+                    Err(_) => return Ok(None),
+                };
+                let drop = (*skip).min(n);
+                *skip -= drop;
+                interleaved.clear();
+                interleaved.extend_from_slice(&out[drop * *channels..n * *channels]);
+                Ok(Some((48_000, *channels)))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -142,7 +227,15 @@ mod tests {
 
     #[test]
     fn decodes_every_offered_format_to_mono_flac() {
-        for file in ["tone.wav", "tone.mp3", "tone.m4a", "tone.mp4", "tone.ogg"] {
+        for file in [
+            "tone.wav",
+            "tone.mp3",
+            "tone.m4a",
+            "tone.mp4",
+            "tone.ogg",
+            "tone.opus",
+            "tone-stereo.webm",
+        ] {
             let dest = crate::test_util::temp_dir().join("import.flac");
             let mut last = 0.0;
             let seconds = import_to_flac(&fixture(file), &dest, &mut |p| last = p).unwrap();

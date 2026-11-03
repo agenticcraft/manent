@@ -20,9 +20,11 @@ export function MeetingRow({
 }: {
   meeting: MeetingSummary;
   onOpen: (id: number) => void;
-  onDelete: (id: number) => Promise<void>;
+  onDelete: (id: number, alsoRemote: boolean) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
+  // A synced meeting: also remove its folder from Nextcloud? (VRT-39; on by default)
+  const [alsoRemote, setAlsoRemote] = useState(true);
   const [busy, setBusy] = useState(false);
   const status = STATUS_LABEL[meeting.status];
   const shown = meeting.speakers.slice(0, 4);
@@ -95,6 +97,18 @@ export function MeetingRow({
       {confirming ? (
         <div className="flex items-center gap-2" role="group" aria-label="Confirm delete">
           <span className="text-xs text-muted-foreground">Delete meeting and audio?</span>
+          {meeting.synced && (
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="accent-brand"
+                checked={alsoRemote}
+                onChange={(e) => setAlsoRemote(e.target.checked)}
+                data-testid="delete-also-remote"
+              />
+              Also from Nextcloud
+            </label>
+          )}
           <Button
             size="sm"
             variant="destructive"
@@ -103,7 +117,7 @@ export function MeetingRow({
             onClick={async () => {
               setBusy(true);
               try {
-                await onDelete(meeting.id);
+                await onDelete(meeting.id, meeting.synced && alsoRemote);
               } finally {
                 setBusy(false);
                 setConfirming(false);

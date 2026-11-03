@@ -40,8 +40,16 @@ pub struct JobView {
     pub error: Option<String>,
 }
 
+/// What an import knows besides the file: from a phone recording's meta.json (VRT-39).
+#[derive(Debug, Clone, Default)]
+pub struct ImportMeta {
+    pub title: Option<String>,
+    /// Unix ms.
+    pub started_at: Option<i64>,
+}
+
 enum Work {
-    Import(PathBuf),
+    Import(PathBuf, ImportMeta),
     Transcribe(i64),
     Recover(i64),
 }
@@ -95,8 +103,8 @@ impl Jobs {
             .spawn(move || {
                 for (id, work) in rx {
                     let result = match work {
-                        Work::Import(path) => {
-                            tauri::async_runtime::block_on(run_import(&worker, id, path))
+                        Work::Import(path, meta) => {
+                            tauri::async_runtime::block_on(run_import(&worker, id, path, meta))
                         }
                         Work::Transcribe(meeting_id) => {
                             tauri::async_runtime::block_on(run_transcribe(&worker, id, meeting_id))
@@ -160,7 +168,17 @@ impl Jobs {
             || path.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
         );
-        self.add("import", name, None, Work::Import(path))
+        self.add(
+            "import",
+            name,
+            None,
+            Work::Import(path, ImportMeta::default()),
+        )
+    }
+
+    /// Import with a known title and start time (a phone recording from the sync inbox).
+    pub fn import_as(&self, path: PathBuf, name: String, meta: ImportMeta) -> u64 {
+        self.add("import", name, None, Work::Import(path, meta))
     }
 
     /// Transcribe a meeting (again): its tracks are transcribed and diarized whole, replacing
@@ -234,20 +252,24 @@ impl Shared {
     }
 }
 
-async fn run_import(s: &Shared, id: u64, path: PathBuf) -> Result<(), String> {
+async fn run_import(s: &Shared, id: u64, path: PathBuf, meta: ImportMeta) -> Result<(), String> {
     let err = |e: crate::db::DbError| e.to_string();
     let name = path
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let title = path
-        .file_stem()
-        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let title = meta.title.clone().unwrap_or_else(|| {
+        path.file_stem()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    });
     // The meeting dates from the file (when it was recorded or saved), else from now.
-    let started_at = std::fs::metadata(&path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(now_ms()?, |d| d.as_millis() as i64);
+    let started_at = match meta.started_at {
+        Some(t) => t,
+        None => std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(now_ms()?, |d| d.as_millis() as i64),
+    };
     let pending = s.paths.meetings_root().join(format!("import-{id}"));
     let meeting_id =
         s.db.create_meeting(&title, started_at, &pending.display().to_string())
