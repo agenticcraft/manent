@@ -3,6 +3,7 @@ name = "manent-engine"
 version = "0.1.0"
 description = "Manent transcription engine helper: runs libparakeet (parakeet.cpp) out of process"
 authors = ["Rob"]
+license = "GPL-3.0-or-later"
 edition = "2024"
 
 # The only crate allowed `unsafe`: it calls libparakeet's C API (decision-1).

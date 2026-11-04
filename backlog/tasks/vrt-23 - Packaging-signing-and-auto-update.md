@@ -1,10 +1,11 @@
 ---
 id: VRT-23
 title: Packaging, signing and auto-update
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: 2026-10-29 12:17
-updated_date: '2026-11-03T20:13:00Z'
+updated_date: '2026-11-04T08:02:00Z'
 labels:
   - release
 milestone: m-3
