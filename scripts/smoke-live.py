@@ -64,6 +64,24 @@ title = con.execute("SELECT title FROM meetings WHERE id = ?", (meeting_id,)).fe
 con.close()
 s.check(title == "Smoke test meeting", f"title persisted while recording: '{title}'")
 
+# Call or in the room (VRT-47): a call on a fresh install; switching is stored on the meeting.
+def kind():
+    return s.js("return document.querySelector('[data-testid=meeting-kind]').dataset.inRoom")
+def in_room_db(mid):
+    con = sqlite3.connect(DATA / "manent.db")
+    v = con.execute("SELECT in_room FROM meetings WHERE id = ?", (mid,)).fetchone()[0]
+    con.close()
+    return v
+s.check(kind() == "false" and in_room_db(meeting_id) == 0, "a new install records a call")
+s.js("document.querySelector('[data-testid=kind-room]').click()")
+time.sleep(0.4)
+s.check(kind() == "true" and in_room_db(meeting_id) == 1, "switched to 'In the room' while recording (stored)")
+for dark in (True, False):
+    s.js(f"document.documentElement.classList.toggle('dark', {str(dark).lower()})")
+    time.sleep(0.4)
+    s.screenshot(OUT / f"live-in-room-{'dark' if dark else 'light'}.png")
+s.js("document.documentElement.classList.toggle('dark', matchMedia('(prefers-color-scheme: dark)').matches)")
+
 # Mute the microphone for ~1.5 s
 mic_mute = "[...document.querySelectorAll('[data-testid=source-chip]')][0].querySelector('[data-testid=mute-toggle]').click()"
 s.js(mic_mute)
@@ -93,13 +111,45 @@ s.check(t3 != t2, f"resumed: timer moves {t2} -> {t3}")
 
 # Stop -> Library with the meeting
 s.js("document.querySelector('[data-testid=stop]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 10)  # Stop opens the recording
+s.js("document.querySelector('[data-testid=back]').click()")
 row = s.wait_for("return document.querySelector('[data-testid=meeting-row]')?.innerText", 10)
 wall = time.time() - t_start
 if player:
     player.terminate()
 s.check(bool(row) and "Smoke test meeting" in row, f"meeting listed in Library: {row!r}")
 s.check(not s.js("return document.querySelector('[data-testid=recording-nav]')"), "'Recording' gone from sidebar")
+s.check(bool(s.js("return document.querySelector('[data-testid=record-nav]')")), "sidebar shows 'Record' when idle")
 s.screenshot(OUT / "library-after-recording.png")
+
+# Record from the sidebar, from another screen (VRT-49), and back to it from elsewhere.
+s.js("[...document.querySelectorAll('nav button')].find(b => b.textContent.trim() == 'Settings').click()")
+time.sleep(0.5)
+s.js("document.querySelector('[data-testid=record-nav]').click()")
+chips = s.wait_for("return document.querySelectorAll('[data-testid=source-chip]').length", 10)
+s.check(chips == 2 and bool(s.js("return document.querySelector('[data-testid=recording-nav]')")),
+        "Record in the sidebar starts a recording from Settings")
+second = s.invoke("current_recording")
+s.check(second["in_room"] and kind() == "true" and in_room_db(second["meeting_id"]) == 1,
+        "the next recording starts 'In the room', as the last one")
+s.js("[...document.querySelectorAll('nav button')].find(b => b.textContent.trim() == 'Speakers').click()")
+time.sleep(0.5)
+for dark in (True, False):
+    s.js(f"document.documentElement.classList.toggle('dark', {str(dark).lower()})")
+    time.sleep(0.4)
+    s.screenshot(OUT / f"sidebar-recording-{'dark' if dark else 'light'}.png")
+s.js("document.querySelector('[data-testid=recording-nav]').click()")
+back = s.wait_for("return document.querySelector('[data-testid=stop]')", 5)
+s.check(bool(back), "'Recording' in the sidebar goes back to the running recording")
+time.sleep(1)
+s.js("document.querySelector('[data-testid=stop]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 10)
+s.js("document.querySelector('[data-testid=back]').click()")
+s.wait_for("return document.querySelector('[data-testid=record-nav]')", 10)
+for dark in (True, False):
+    s.js(f"document.documentElement.classList.toggle('dark', {str(dark).lower()})")
+    time.sleep(0.4)
+    s.screenshot(OUT / f"sidebar-idle-{'dark' if dark else 'light'}.png")
 s.close()
 
 # Database and files
@@ -125,6 +175,26 @@ if len(tracks) == 2:
         else:
             zeros = 0
     s.check(longest / sr > 1.0, f"muted stretch is digital silence in mic.flac ({longest / sr:.2f}s of exact zeros)")
+
+# After a restart the last choice still holds; switching back to a call is stored too.
+earlier = s.failures
+s = Session(APP)
+s.failures = earlier + s.failures
+s.wait_for("return document.querySelector('[data-testid=record-nav]')")
+s.js("document.querySelector('[data-testid=record-nav]').click()")
+s.wait_for("return document.querySelectorAll('[data-testid=source-chip]').length", 10)
+third = s.invoke("current_recording")["meeting_id"]
+s.check(kind() == "true", "after a restart the recording starts 'In the room'")
+s.js("document.querySelector('[data-testid=kind-call]').click()")
+time.sleep(0.4)
+s.check(kind() == "false" and in_room_db(third) == 0, "switched back to 'Call' (stored)")
+s.js("document.querySelector('[data-testid=stop]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 10)
+s.close()
+con = sqlite3.connect(DATA / "manent.db")
+remembered = con.execute("SELECT value FROM settings WHERE key = 'recording.in_room'").fetchone()
+con.close()
+s.check(remembered is not None and remembered[0] == "false", f"the last choice is saved: {remembered}")
 
 print(f"\n{'PASS' if not s.failures else 'FAILED: ' + '; '.join(s.failures)}; screenshots in {OUT}")
 sys.exit(1 if s.failures else 0)

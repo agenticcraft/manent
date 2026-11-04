@@ -94,7 +94,9 @@ blocks = s.js("return [...document.querySelectorAll('[data-testid=caption-block]
 s.check(len(blocks) > 0 and "loopback" in blocks, f"caption blocks shown: {len(blocks)} ({sorted(set(blocks))})")
 
 s.js("document.querySelector('[data-testid=stop]').click()")
-s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 30)
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 30)  # Stop opens the recording
+s.js("document.querySelector('[data-testid=back]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 10)
 time.sleep(3)  # the last chunk is transcribed after Stop (the final pass runs on)
 s.close()
 

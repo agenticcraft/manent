@@ -1,4 +1,4 @@
-import { Pause, Play, Square } from "lucide-react";
+import { Headset, Pause, Play, Square, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { LiveTranscript } from "@/components/LiveTranscript";
 import { SourceChip } from "@/components/SourceChip";
@@ -8,7 +8,13 @@ import { call, on, type RecordingStarted } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
 /** Live recording (doc-3 screen 2). Captions from VRT-16; speakers come with VRT-17. */
-export function Live({ session, onStopped }: { session: RecordingStarted; onStopped: () => void }) {
+export function Live({
+  session,
+  onStopped,
+}: {
+  session: RecordingStarted;
+  onStopped: (meetingId: number) => void;
+}) {
   const [title, setTitle] = useState("");
   const savedTitle = useRef("");
   const titleNow = useRef("");
@@ -31,6 +37,8 @@ export function Live({ session, onStopped }: { session: RecordingStarted; onStop
   const [levels, setLevels] = useState<Record<string, number>>({});
   const [muted, setMuted] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
+  // A call (only the user on the mic) or a room (everyone there on the mic), VRT-47.
+  const [inRoom, setInRoom] = useState(session.in_room);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -85,13 +93,20 @@ export function Live({ session, onStopped }: { session: RecordingStarted; onStop
       setMuted((m) => ({ ...m, [sourceId]: next }));
     });
 
+  const switchRoom = (next: boolean) =>
+    run(async () => {
+      if (next === inRoom) return;
+      await call("set_recording_in_room", { inRoom: next });
+      setInRoom(next);
+    });
+
   const stop = () =>
     run(async () => {
       setBusy(true);
       try {
         await saveTitle();
-        await call("stop_recording");
-        onStopped();
+        const stopped = await call("stop_recording");
+        onStopped(stopped.meeting_id);
       } finally {
         setBusy(false);
       }
@@ -143,6 +158,39 @@ export function Live({ session, onStopped }: { session: RecordingStarted; onStop
             onToggleMute={() => toggleMute(s.id)}
           />
         ))}
+        <div
+          role="radiogroup"
+          aria-label="Who is on the microphone"
+          className="ml-auto inline-flex items-center rounded-full border p-0.5 text-sm"
+          data-testid="meeting-kind"
+          data-in-room={inRoom}
+        >
+          {(
+            [
+              [false, "Call", Headset, "Only you are on the microphone"],
+              [true, "In the room", Users, "Everyone in the room is on the microphone"],
+            ] as const
+          ).map(([value, label, Icon, hint]) => (
+            <button
+              key={label}
+              type="button"
+              role="radio"
+              aria-checked={inRoom === value}
+              title={hint}
+              onClick={() => switchRoom(value)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors",
+                inRoom === value
+                  ? "bg-muted font-medium text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              data-testid={value ? "kind-room" : "kind-call"}
+            >
+              <Icon className="size-3.5" aria-hidden />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && (
@@ -151,7 +199,7 @@ export function Live({ session, onStopped }: { session: RecordingStarted; onStop
         </p>
       )}
 
-      <LiveTranscript session={session} paused={paused} />
+      <LiveTranscript session={session} paused={paused} inRoom={inRoom} />
     </div>
   );
 }

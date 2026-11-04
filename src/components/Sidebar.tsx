@@ -11,33 +11,40 @@ interface SidebarProps<K extends string> {
   items: NavItem<K>[];
   active: K | null;
   onSelect: (key: K) => void;
-  /** Shown while a recording runs: a way back to the Live screen. */
-  recording?: { active: boolean; onSelect: () => void };
+  /** Always on top (VRT-49): idle it starts a recording; while recording it returns to it. */
+  record: { recording: boolean; active: boolean; busy: boolean; onSelect: () => void };
 }
 
 /** Thin left sidebar (doc-3): app name, navigation, nothing else. */
-export function Sidebar<K extends string>({ items, active, onSelect, recording }: SidebarProps<K>) {
+export function Sidebar<K extends string>({ items, active, onSelect, record }: SidebarProps<K>) {
   return (
     <nav
       aria-label="Main"
       className="flex w-52 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 py-5 text-sidebar-foreground"
     >
       <div className="mb-6 px-2 text-sm font-semibold tracking-tight text-foreground">Manent</div>
-      {recording && (
-        <button
-          type="button"
-          onClick={recording.onSelect}
-          aria-current={recording.active ? "page" : undefined}
+      <button
+        type="button"
+        onClick={record.onSelect}
+        disabled={record.busy}
+        aria-current={record.active ? "page" : undefined}
+        className={cn(
+          "mb-3 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors disabled:opacity-60",
+          record.recording
+            ? cn("text-recording", record.active ? "bg-recording/10" : "hover:bg-recording/10")
+            : "hover:bg-sidebar-accent/60",
+        )}
+        data-testid={record.recording ? "recording-nav" : "record-nav"}
+      >
+        <span
           className={cn(
-            "mb-3 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium text-recording transition-colors",
-            recording.active ? "bg-recording/10" : "hover:bg-recording/10",
+            "ml-1 size-2 rounded-full bg-recording",
+            record.recording && "recording-pulse",
           )}
-          data-testid="recording-nav"
-        >
-          <span className="recording-pulse ml-1 size-2 rounded-full bg-recording" aria-hidden />
-          Recording
-        </button>
-      )}
+          aria-hidden
+        />
+        {record.recording ? "Recording" : "Record"}
+      </button>
       <ul className="flex flex-col gap-0.5">
         {items.map(({ key, label, icon: Icon }) => (
           <li key={key}>

@@ -20,6 +20,7 @@ export function SpeakerChip({
   meName,
   voices,
   onRenameMe,
+  inRoom = false,
 }: {
   meetingId: number;
   label: string | null;
@@ -27,10 +28,15 @@ export function SpeakerChip({
   meName: string;
   voices: VoiceView[];
   onRenameMe: (name: string) => void;
+  /** In a room a mic caption is anyone there, not the user (VRT-47). */
+  inRoom?: boolean;
 }) {
   const [editingMe, setEditingMe] = useState(false);
   const [open, setOpen] = useState(false);
 
+  if (label === null && kind === "mic" && inRoom) {
+    return <span className={cn(CHIP, "bg-muted")}>In the room</span>;
+  }
   if (label === "me" || (label === null && kind === "mic")) {
     if (editingMe) {
       return (

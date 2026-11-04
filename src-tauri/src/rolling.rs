@@ -1,7 +1,8 @@
 //! The rolling and final passes (VRT-17, doc-2 §1.3). While recording, a rolling pass runs
 //! about every 45 s over the newest audio of every track (from the caption workers'
 //! history), with 30 s of context before it: the system track is transcribed and diarized,
-//! the mic track transcribed as "Me", bleed removed, and the result replaces the captions of
+//! the mic track transcribed as "Me" (in a room, VRT-47: diarized like the system track), bleed
+//! removed, and the result replaces the captions of
 //! that stretch. After the recording the final pass does the same over the whole meeting at
 //! once, so speaker labels are consistent everywhere.
 
@@ -27,6 +28,14 @@ const MIN_NEW: u64 = 20 * RATE;
 const CONTEXT: u64 = 30 * RATE;
 /// The newest second is left for the next pass (a word may still be running).
 const MARGIN_MS: u32 = 1000;
+
+/// How the rolling passes of a recording run.
+pub struct PassOptions {
+    /// Time between passes (Settings, VRT-27).
+    pub interval: Duration,
+    /// In a room the mic is diarized too; switchable while recording (VRT-47).
+    pub in_room: Arc<AtomicBool>,
+}
 
 /// A track the passes work on.
 pub struct PassTrack {
@@ -115,10 +124,12 @@ pub fn safe_end(words: &[&Word], end_ms: u32) -> u32 {
 }
 
 /// Transcribe the given 16 kHz audio of each track: system tracks with speakers, the mic as
-/// words. Returns (track, words, diarization) with times relative to the audio start.
+/// words (in a room with speakers too). Returns (track, words, diarization) with times
+/// relative to the audio start.
 async fn transcribe_tracks<E: Engine + Clone + Send + Sync + 'static>(
     engine: &E,
     audio: Vec<(TrackRef, PathBuf)>,
+    in_room: bool,
 ) -> Result<Vec<(TrackRef, Vec<Word>, Option<Diarization>)>, String> {
     // One task per track, so the helper runs them on its parallel backends.
     let tasks: Vec<_> = audio
@@ -126,15 +137,16 @@ async fn transcribe_tracks<E: Engine + Clone + Send + Sync + 'static>(
         .map(|(track, wav)| {
             let engine = engine.clone();
             tauri::async_runtime::spawn(async move {
-                match track.kind {
-                    SourceKind::Loopback => engine.transcribe_file(&wav).await.map(|f| {
-                        let words = f.segments.into_iter().flat_map(|s| s.words).collect();
-                        (track, words, Some(f.diarization))
-                    }),
-                    SourceKind::Mic => engine
+                if track.kind == SourceKind::Mic && !in_room {
+                    engine
                         .transcribe_words(&wav)
                         .await
-                        .map(|t| (track, t.words, None)),
+                        .map(|t| (track, t.words, None))
+                } else {
+                    engine.transcribe_file(&wav).await.map(|f| {
+                        let words = f.segments.into_iter().flat_map(|s| s.words).collect();
+                        (track, words, Some(f.diarization))
+                    })
                 }
             })
         })
@@ -146,38 +158,53 @@ async fn transcribe_tracks<E: Engine + Clone + Send + Sync + 'static>(
     Ok(out)
 }
 
-/// Bleed removal and labelling of one pass's words (all times in meeting ms).
+/// A diarized track's words to label: (track id, its diarization, its words after bleed removal).
+type ToLabel<'a> = (i64, &'a Diarization, &'a [Word]);
+
+/// Bleed removal and labelling of one pass's words (all times in meeting ms). `labels_for`
+/// gets every diarized track at once (their numbering is shared) and returns one label map
+/// per track, in that order.
 fn label_blocks(
     tracks: &[(TrackRef, Vec<Word>, Option<Diarization>)],
-    mut labels_for: impl FnMut(&Diarization, &[Word]) -> HashMap<u32, String>,
+    labels_for: impl FnOnce(&[ToLabel]) -> Vec<HashMap<u32, String>>,
 ) -> (Vec<(i64, Labelled)>, Vec<LabelVoice>) {
     let system_words: Vec<Word> = tracks
         .iter()
-        .filter(|(_, _, d)| d.is_some())
+        .filter(|(t, _, _)| t.kind == SourceKind::Loopback)
         .flat_map(|(_, w, _)| w.iter().cloned())
         .collect();
+    // The mic also hears the speakers: those words belong to the system track.
+    let words: Vec<Vec<Word>> = tracks
+        .iter()
+        .map(|(t, w, _)| match t.kind {
+            SourceKind::Mic => passes::remove_bleed(w, &system_words),
+            SourceKind::Loopback => w.clone(),
+        })
+        .collect();
+    let diarized: Vec<ToLabel> = tracks
+        .iter()
+        .zip(&words)
+        .filter_map(|((t, _, d), w)| Some((t.track_id, d.as_ref()?, w.as_slice())))
+        .collect();
+    let mut labels = labels_for(&diarized).into_iter();
     let mut blocks = Vec::new();
     let mut voices = Vec::new();
-    for (track, words, diar) in tracks {
+    for ((track, _, diar), words) in tracks.iter().zip(&words) {
         match diar {
             Some(d) => {
-                let labels = labels_for(d, words);
+                let labels = labels.next().unwrap_or_default();
                 voices.extend(label_voices(d, &labels));
-                let turns: Vec<SpeakerTurn> = d.turns.clone();
                 blocks.extend(
-                    passes::system_blocks(words, &turns, &labels)
+                    passes::system_blocks(words, &d.turns, &labels)
                         .into_iter()
                         .map(|b| (track.track_id, b)),
                 );
             }
-            None => {
-                let kept = passes::remove_bleed(words, &system_words);
-                blocks.extend(
-                    passes::me_blocks(&kept)
-                        .into_iter()
-                        .map(|b| (track.track_id, b)),
-                );
-            }
+            None => blocks.extend(
+                passes::me_blocks(words)
+                    .into_iter()
+                    .map(|b| (track.track_id, b)),
+            ),
         }
     }
     blocks.sort_by_key(|(_, b)| b.start_ms);
@@ -190,7 +217,7 @@ pub fn spawn<E: Engine + Clone + Send + Sync + 'static>(
     tracks: Vec<PassTrack>,
     engine: E,
     tmp: PathBuf,
-    interval: Duration,
+    options: PassOptions,
     on_pass: impl Fn(PassResult) + Send + 'static,
     on_error: impl Fn(String) + Send + 'static,
 ) -> std::io::Result<Rolling> {
@@ -204,7 +231,7 @@ pub fn spawn<E: Engine + Clone + Send + Sync + 'static>(
             let mut last = Instant::now();
             while !flag.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(250));
-                if last.elapsed() < interval {
+                if last.elapsed() < options.interval {
                     continue;
                 }
                 last = Instant::now();
@@ -213,6 +240,7 @@ pub fn spawn<E: Engine + Clone + Send + Sync + 'static>(
                     &engine,
                     &tmp,
                     from,
+                    options.in_room.load(Ordering::SeqCst),
                     &mut labels,
                 )) {
                     Ok(Some((result, next))) => {
@@ -233,6 +261,7 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
     engine: &E,
     tmp: &Path,
     from: u64,
+    in_room: bool,
     labels: &mut RollingLabels,
 ) -> Result<Option<(PassResult, u64)>, String> {
     let lock = |h: &SharedHistory| {
@@ -262,7 +291,7 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
         audio.push((t.track.clone(), wav));
     }
     let files: Vec<PathBuf> = audio.iter().map(|(_, w)| w.clone()).collect();
-    let result = transcribe_tracks(engine, audio).await;
+    let result = transcribe_tracks(engine, audio, in_room).await;
     for f in files {
         let _ = std::fs::remove_file(f);
     }
@@ -285,7 +314,12 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
     for (_, words, _) in &mut results {
         words.retain(|w| w.start_ms >= from_ms && w.start_ms < to_ms);
     }
-    let (blocks, voices) = label_blocks(&results, |d, kept| labels.assign(d, kept));
+    let (blocks, voices) = label_blocks(&results, |tracks| {
+        tracks
+            .iter()
+            .map(|(track, d, kept)| labels.assign(*track, d, kept))
+            .collect()
+    });
     Ok(Some((
         PassResult {
             from_ms,
@@ -297,11 +331,12 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
     )))
 }
 
-/// The final pass over whole tracks (16 kHz mono audio per track).
+/// The final pass over whole tracks (16 kHz mono audio per track); `in_room` diarizes the mic.
 pub async fn final_pass<E: Engine + Clone + Send + Sync + 'static>(
     engine: &E,
     tracks: Vec<(TrackRef, Vec<f32>)>,
     tmp: &Path,
+    in_room: bool,
 ) -> Result<(Vec<(i64, Labelled)>, Vec<LabelVoice>), String> {
     std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
     let mut audio = Vec::new();
@@ -311,13 +346,17 @@ pub async fn final_pass<E: Engine + Clone + Send + Sync + 'static>(
         audio.push((track.clone(), wav));
     }
     let files: Vec<PathBuf> = audio.iter().map(|(_, w)| w.clone()).collect();
-    let result = transcribe_tracks(engine, audio).await;
+    let result = transcribe_tracks(engine, audio, in_room).await;
     for f in files {
         let _ = std::fs::remove_file(f);
     }
     let results = result?;
-    Ok(label_blocks(&results, |d, words| {
-        passes::number_by_appearance(words, &d.turns)
+    Ok(label_blocks(&results, |tracks| {
+        let tracks: Vec<(&[Word], &[SpeakerTurn])> = tracks
+            .iter()
+            .map(|(_, d, words)| (*words, d.turns.as_slice()))
+            .collect();
+        passes::number_by_appearance(&tracks)
     }))
 }
 
@@ -332,6 +371,102 @@ mod tests {
             end_ms,
             conf: 1.0,
         }
+    }
+
+    fn said(text: &str, start_ms: u32, end_ms: u32) -> Word {
+        Word {
+            text: text.into(),
+            start_ms,
+            end_ms,
+            conf: 1.0,
+        }
+    }
+
+    fn tref(track_id: i64, kind: SourceKind) -> TrackRef {
+        TrackRef {
+            meeting_id: 1,
+            track_id,
+            source_id: format!("{kind:?}"),
+            kind,
+        }
+    }
+
+    fn diarized(turns: Vec<SpeakerTurn>) -> Diarization {
+        Diarization {
+            turns,
+            profiles: Vec::new(),
+            encoder_id: "sha256:x".into(),
+        }
+    }
+
+    fn turn(speaker: u32, start_ms: u32, end_ms: u32) -> SpeakerTurn {
+        SpeakerTurn {
+            speaker,
+            start_ms,
+            end_ms,
+        }
+    }
+
+    fn final_labels(tracks: &[ToLabel]) -> Vec<HashMap<u32, String>> {
+        let tracks: Vec<(&[Word], &[SpeakerTurn])> = tracks
+            .iter()
+            .map(|(_, d, w)| (*w, d.turns.as_slice()))
+            .collect();
+        passes::number_by_appearance(&tracks)
+    }
+
+    #[test]
+    fn in_a_room_the_mic_has_speakers_and_still_loses_its_bleed() {
+        // The mic hears two people in the room and, at 5 s, the remote person through the
+        // speakers; the system track has that remote person.
+        let mic = vec![
+            said("Goedemorgen", 0, 800),
+            said("allemaal.", 800, 1500),
+            said("Zullen", 3000, 3400),
+            said("we", 3400, 3600),
+            said("beginnen?", 3600, 4200),
+            said("hello", 5100, 5600),
+            said("there", 5600, 6000),
+        ];
+        let mic_diar = diarized(vec![
+            turn(0, 0, 1600),
+            turn(1, 2900, 4300),
+            turn(0, 5000, 6100),
+        ]);
+        let system = vec![said("Hello", 5000, 5500), said("there.", 5500, 5900)];
+        let sys_diar = diarized(vec![turn(0, 5000, 6000)]);
+        let tracks = vec![
+            (tref(1, SourceKind::Mic), mic, Some(mic_diar)),
+            (tref(2, SourceKind::Loopback), system, Some(sys_diar)),
+        ];
+        let (blocks, _) = label_blocks(&tracks, final_labels);
+        let got: Vec<(i64, &str, &str)> = blocks
+            .iter()
+            .map(|(t, b)| (*t, b.label.as_str(), b.text.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (1, "1", "Goedemorgen allemaal."),
+                (1, "2", "Zullen we beginnen?"),
+                (2, "3", "Hello there."),
+            ]
+        );
+    }
+
+    #[test]
+    fn in_a_call_the_mic_is_me() {
+        let tracks = vec![
+            (tref(1, SourceKind::Mic), vec![said("Hoi", 0, 500)], None),
+            (
+                tref(2, SourceKind::Loopback),
+                vec![said("Hi", 1000, 1500)],
+                Some(diarized(vec![turn(4, 900, 1600)])),
+            ),
+        ];
+        let (blocks, _) = label_blocks(&tracks, final_labels);
+        let labels: Vec<&str> = blocks.iter().map(|(_, b)| b.label.as_str()).collect();
+        assert_eq!(labels, [passes::ME, "1"]);
     }
 
     #[test]
@@ -405,6 +540,7 @@ mod engine_tests {
                 (track(2, SourceKind::Loopback), system),
             ],
             &tmp,
+            false,
         )
         .await
         .unwrap();
@@ -434,5 +570,47 @@ mod engine_tests {
             .map(|(_, b)| b.label.clone())
             .collect();
         assert_eq!(remote.len(), 2, "two remote speakers: {remote:?}");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs the downloaded engine and model"]
+    async fn in_a_room_the_people_on_the_mic_are_told_apart() {
+        let data = std::env::var_os("MANENT_TEST_ENGINE_DATA").expect("MANENT_TEST_ENGINE_DATA");
+        let paths = AppPaths::new(data.into());
+        let engine = EngineManager::new(paths.clone(), |_| {});
+        // The mic hears two people in the room, then a third (Dutch); the system is quiet.
+        let mut mic = fixture("en-two-speakers.wav");
+        mic.extend(std::iter::repeat_n(0.0, RATE as usize));
+        mic.extend(fixture("nl-fleurs-1784.wav"));
+        let system = vec![0.0f32; mic.len()];
+        let tmp = crate::test_util::temp_dir();
+        let (blocks, voices) = final_pass(
+            &engine,
+            vec![
+                (track(1, SourceKind::Mic), mic),
+                (track(2, SourceKind::Loopback), system),
+            ],
+            &tmp,
+            true,
+        )
+        .await
+        .unwrap();
+        for (id, b) in &blocks {
+            println!(
+                "track {id} {:>5}-{:>5} {:>2} {}",
+                b.start_ms, b.end_ms, b.label, b.text
+            );
+        }
+        assert!(
+            blocks.iter().all(|(_, b)| b.label != passes::ME),
+            "in a room nobody is 'Me' by default"
+        );
+        let labels: std::collections::HashSet<_> =
+            blocks.iter().map(|(_, b)| b.label.clone()).collect();
+        assert_eq!(labels.len(), 3, "three people on the mic: {labels:?}");
+        assert!(
+            voices.iter().all(|v| labels.contains(&v.label)),
+            "every voice belongs to a label"
+        );
     }
 }

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 const STAGE = {
   waiting: "Waiting",
   decoding: "Reading the audio",
+  mixing: "Preparing audio",
   transcribing: "Transcribing",
   done: "Done",
   failed: "Failed",
@@ -38,7 +39,9 @@ export function JobsPanel({
                   ? "Importing "
                   : j.kind === "recover"
                     ? "Recovering "
-                    : "Transcribing "}
+                    : j.kind === "prepare"
+                      ? "Finishing "
+                      : "Transcribing "}
                 {j.meeting_id !== null && j.stage === "done" ? (
                   <button
                     type="button"

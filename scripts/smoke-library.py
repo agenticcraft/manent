@@ -122,6 +122,56 @@ con.close()
 res = s.invoke("delete_meeting", {"id": oid})
 s.check(res is True and (outside / "keep.txt").exists(), f"folder outside meetings/ is never deleted (result {res})")
 
+# Rename a meeting on its page (VRT-46): Enter saves, Esc cancels, empty = automatic title.
+set_value = ("const i = document.querySelector('[data-testid=meeting-title-edit]');"
+             "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, arguments[0]);"
+             "i.dispatchEvent(new Event('input', {bubbles: true}));")
+key = ("document.querySelector('[data-testid=meeting-title-edit]')"
+       ".dispatchEvent(new KeyboardEvent('keydown', {key: arguments[0], bubbles: true}))")
+heading = "return document.querySelector('[data-testid=meeting-heading]')?.textContent"
+s.js(f"document.querySelector(\"[data-testid=meeting-row][data-meeting-id='{klant}'] [data-testid=open-meeting]\").click()")
+s.wait_for(heading, 10)
+s.js("document.querySelector('[data-testid=rename-meeting]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-title-edit]')", 3)
+s.js(set_value, "Klantgesprek Acme, vervolg")
+for theme in ("light", "dark"):
+    s.js("document.documentElement.classList.toggle('dark', arguments[0] === 'dark')", theme)
+    time.sleep(0.4)
+    s.screenshot(OUT / f"meeting-rename-{theme}.png")
+s.js(key, "Enter")
+renamed = s.wait_for(f"const t = document.querySelector('[data-testid=meeting-heading]')?.textContent; return t === 'Klantgesprek Acme, vervolg' && t", 3)
+s.check(bool(renamed), f"Enter saves the new title ({renamed!r})")
+s.js("document.querySelector('[data-testid=rename-meeting]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-title-edit]')", 3)
+s.js(set_value, "Not this")
+s.js(key, "Escape")
+time.sleep(0.5)
+s.check(s.js(heading) == "Klantgesprek Acme, vervolg", f"Esc cancels ({s.js(heading)!r})")
+md = Path(ids["Klantgesprek Acme"][1]) / "transcript.md"
+end = time.time() + 10
+while time.time() < end and not (md.is_file() and "Klantgesprek Acme, vervolg" in md.read_text()):
+    time.sleep(0.3)
+s.check(md.is_file() and "Klantgesprek Acme, vervolg" in md.read_text(), "transcript.md has the new title")
+s.js("document.querySelector('[data-testid=back]').click()")
+row_titles = s.wait_for("const t = [...document.querySelectorAll('[data-testid=meeting-title]')].map(e => e.textContent);"
+                        " return t.includes('Klantgesprek Acme, vervolg') && t", 5)
+s.check(bool(row_titles), f"the Library shows it ({row_titles})")
+failures = list(s.failures)
+s.close()
+
+# After a restart it's still there; clearing it brings back the automatic title.
+s = Session(APP)
+s.failures = failures
+row = s.wait_for(f"return document.querySelector(\"[data-testid=meeting-row][data-meeting-id='{klant}'] [data-testid=meeting-title]\")?.textContent", 15)
+s.check(row == "Klantgesprek Acme, vervolg", f"the new title survives a restart ({row!r})")
+s.js(f"document.querySelector(\"[data-testid=meeting-row][data-meeting-id='{klant}'] [data-testid=open-meeting]\").click()")
+s.wait_for(heading, 10)
+s.js("document.querySelector('[data-testid=rename-meeting]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-title-edit]')", 3)
+s.js(set_value, "  ")
+s.js(key, "Enter")
+auto = s.wait_for(f"const t = document.querySelector('[data-testid=meeting-heading]')?.textContent; return t && t.endsWith(' meeting') && t", 3)
+s.check(bool(auto), f"an empty title goes back to the automatic one ({auto!r})")
 s.close()
 print(f"\n{'PASS' if not s.failures else 'FAILED: ' + '; '.join(s.failures)}; screenshots in {OUT}")
 sys.exit(1 if s.failures else 0)

@@ -1,6 +1,10 @@
-"""Playback smoke check: record a few seconds, stop, check mix.opus, play it in the app.
+"""Playback smoke check: record, stop, check mix.opus, play it in the app.
 
-Usage: python3 scripts/smoke-playback.py <app binary> <data dir> <screenshot dir> [<tone.wav>]
+Usage: python3 scripts/smoke-playback.py <app binary> <data dir> <screenshot dir> [<tone.wav>] [<seconds>]
+
+Stop returns at once and opens the recording; the playback file and waveform follow in the
+background, the player saying "Preparing audio" meanwhile (VRT-45; a longer recording, e.g.
+60 s, makes that state last long enough to see in a debug build).
 
 tauri-driver must run with MANENT_DATA_DIR=<data dir> (an empty temp folder). Needs audio
 hardware; the optional WAV is played (quietly) so the mix contains a known tone.
@@ -17,24 +21,43 @@ sys.path.insert(0, str(Path(__file__).parent))
 from wdlib import Session  # noqa: E402
 
 APP, DATA, OUT = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
-TONE = sys.argv[4] if len(sys.argv) > 4 else None
+TONE = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None
+SECONDS = float(sys.argv[5]) if len(sys.argv) > 5 else 5
 
 s = Session(APP)
 s.wait_for("return document.querySelector('[data-testid=new-recording]')")
 player = subprocess.Popen(["paplay", "--volume=20000", TONE]) if TONE else None
 s.js("document.querySelector('[data-testid=new-recording]').click()")
 s.wait_for("return document.querySelectorAll('[data-testid=source-chip]').length", 10)
-time.sleep(5)
+time.sleep(SECONDS)
+t0 = time.time()
 s.js("document.querySelector('[data-testid=stop]').click()")
-s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 15)
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 15)
+stop_s = time.time() - t0
 if player:
     player.terminate()
+s.check(stop_s < 2, f"Stop opens the recording at once ({stop_s:.2f} s after {SECONDS:.0f} s of audio)")
+# Until the playback file is there the player says so; then it appears by itself.
+preparing = False
+end = time.time() + 120
+while time.time() < end:
+    state = s.js("return document.querySelector('[data-testid=audio]') ? 'audio'"
+                 " : document.querySelector('[data-testid=meeting-job][data-stage=mixing]') ? 'preparing'"
+                 " : document.querySelector('[data-testid=no-mix]') ? 'none' : ''")
+    if state == "preparing" and not preparing:
+        preparing = True
+        s.screenshot(OUT / "meeting-preparing.png")
+    if state in ("audio", "none"):
+        break
+    time.sleep(0.1)
+s.check(state == "audio", f"the player appears when the playback file is ready ('Preparing audio' seen: {preparing})")
 
 con = sqlite3.connect(DATA / "manent.db")
 meeting_id, folder, duration_ms = con.execute("SELECT id, dir, duration_ms FROM meetings").fetchone()
 con.close()
 mix = Path(folder) / "mix.opus"
-s.check(mix.is_file(), f"mix.opus created on Stop ({mix.stat().st_size if mix.is_file() else 0} bytes)")
+s.check(mix.is_file() and (Path(folder) / "waveform.json").is_file(),
+        f"mix.opus ({mix.stat().st_size if mix.is_file() else 0} bytes) and waveform.json made after Stop")
 probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_name,channels,sample_rate",
                         "-of", "default=nw=1", str(mix)], capture_output=True, text=True).stdout
 print("     ffprobe:", probe.replace("\n", " "))
@@ -57,8 +80,9 @@ if TONE:
     s.check(in_system > 0 and in_mix > 0.5 * in_system,
             f"system audio reaches the mix (440 Hz: system track {in_system:.4f}, mix {in_mix:.4f})")
 
-# Open the meeting and play it.
-s.js("document.querySelector('[data-testid=open-meeting]').click()")
+# Play it (the meeting is open already).
+bars = s.wait_for("const w = document.querySelector('[data-testid=waveform]'); return w && Number(w.dataset.bars)", 10)
+s.check(bool(bars), f"the waveform shows ({bars} bars)")
 ready = s.wait_for("const a = document.querySelector('[data-testid=audio]'); return a && a.readyState >= 1 && a.duration", 10)
 s.check(bool(ready) and abs(ready - mix_seconds) < 0.2, f"player loaded the mix (duration {ready})")
 s.js("document.querySelector('[data-testid=play-toggle]').click()")

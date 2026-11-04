@@ -124,6 +124,7 @@ pub fn run() {
             commands::resume_recording,
             commands::stop_recording,
             commands::current_recording,
+            commands::set_recording_in_room,
             commands::set_source_muted,
             commands::rename_meeting,
             commands::get_recording_sources,

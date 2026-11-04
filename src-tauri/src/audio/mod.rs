@@ -3,7 +3,7 @@
 //! feed the transcription engine. Platform specifics live in the `cfg` modules below.
 
 mod capture;
-mod flac;
+pub(crate) mod flac;
 mod import;
 pub(crate) mod levels;
 mod mixdown;
@@ -27,9 +27,9 @@ mod platform;
 
 pub use capture::list_sources;
 pub use import::import_to_flac;
-pub use mixdown::{decode_mono, mixdown};
+pub use mixdown::{MixSummary, decode_mono, mixdown_with_progress};
 pub use monitor::Monitor;
 pub use recorder::{Feed, Gap, Recording, Stopped, TrackSummary, track_file_names};
 pub use recover::repair_flac;
 pub use sources::{SourceInfo, SourceKind};
-pub use waveform::waveform;
+pub use waveform::{waveform, waveform_from_power};

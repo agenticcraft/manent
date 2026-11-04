@@ -30,6 +30,8 @@ export interface RecordingStarted {
   sources: SourceInfo[];
   /** Live captions are on (the engine and model are downloaded). */
   captions: boolean;
+  /** In a room: everyone there is on the mic; otherwise a call, the mic is the user (VRT-47). */
+  in_room: boolean;
 }
 
 /** A recognised word; times are milliseconds on the track (Rust: engine::transcript::Word). */
@@ -119,11 +121,13 @@ export interface SearchHit {
 /** A background transcription job (Rust: jobs::JobView). */
 export interface JobView {
   id: number;
-  kind: "import" | "transcribe" | "recover";
+  /** "prepare": only the playback file after Stop (a recording without transcription). */
+  kind: "import" | "transcribe" | "recover" | "prepare";
   /** File or meeting name. */
   name: string;
   meeting_id: number | null;
-  stage: "waiting" | "decoding" | "transcribing" | "done" | "failed";
+  /** "mixing": making the playback file and waveform (VRT-45). */
+  stage: "waiting" | "decoding" | "mixing" | "transcribing" | "done" | "failed";
   /** 0..1 (transcription is an estimate from the audio length). */
   progress: number;
   error: string | null;
@@ -167,8 +171,6 @@ export interface LevelEvent {
 export interface RecordingStopped {
   meeting_id: number;
   tracks: TrackSummary[];
-  /** Path of the playback mixdown (mix.opus), or null if it could not be made. */
-  mix: string | null;
 }
 
 export interface Speaker {
@@ -229,6 +231,8 @@ export interface MeetingDetail {
   dir: string;
   /** The app died during this recording; it was recovered up to the last saved audio (VRT-41). */
   interrupted: boolean;
+  /** Recorded in a room: the mic holds several people (VRT-47). */
+  in_room: boolean;
   /** Playback URL on the app's local media server (127.0.0.1), or null without a mix. */
   mix_url: string | null;
 }
@@ -276,6 +280,7 @@ export interface Commands {
   list_sources: { args: NoArgs; result: SourceInfo[] };
   start_recording: { args: NoArgs; result: RecordingStarted };
   current_recording: { args: NoArgs; result: RecordingStarted | null };
+  set_recording_in_room: { args: { inRoom: boolean }; result: null };
   pause_recording: { args: NoArgs; result: null };
   resume_recording: { args: NoArgs; result: null };
   set_source_muted: { args: { sourceId: string; muted: boolean }; result: null };
@@ -349,6 +354,8 @@ export interface Events {
   "speakers:changed": { meeting_id: number | null };
   /** The job list changed (VRT-19). */
   "jobs:changed": JobView[];
+  /** A meeting's playback file is ready (its id). */
+  "meeting:playback": number;
   /** A recording started or stopped, from the window or the tray (VRT-22). */
   "recording:started": RecordingStarted;
   /** The meeting id of the recording that stopped. */

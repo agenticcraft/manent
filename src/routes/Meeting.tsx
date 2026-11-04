@@ -1,4 +1,4 @@
-import { ArrowLeft, RefreshCw, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Pencil, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioPlayer, type PlayerHandle } from "@/components/AudioPlayer";
 import { ExportMenu } from "@/components/ExportMenu";
@@ -41,9 +41,13 @@ export function Meeting({
   const [gaps, setGaps] = useState<Gap[]>([]);
 
   useEffect(() => {
-    call("meeting_waveform", { id }).then(setWaveform, () => {});
     call("meeting_gaps", { meetingId: id }).then(setGaps, () => {});
   }, [id]);
+  // The waveform comes with the playback file (VRT-45): ask once that exists.
+  const hasMix = Boolean(meeting?.mix_url);
+  useEffect(() => {
+    if (hasMix) call("meeting_waveform", { id }).then(setWaveform, () => {});
+  }, [id, hasMix]);
 
   // A search match: cue the player there once it exists (it mounts with the meeting).
   useEffect(() => {
@@ -81,9 +85,16 @@ export function Meeting({
     const offFinal = on("transcript:final", (e) => {
       if (e.meeting_id === id) setSegments(sorted(e.segments));
     });
+    // Just stopped: the player appears when the playback file is ready.
+    const offPlayback = on("meeting:playback", (meetingId) => {
+      if (meetingId === id) {
+        call("get_meeting", { id }).then(setMeeting, (e: unknown) => setError(String(e)));
+      }
+    });
     return () => {
       offJobs.then((f) => f());
       offFinal.then((f) => f());
+      offPlayback.then((f) => f());
     };
   }, [id, load]);
 
@@ -113,10 +124,12 @@ export function Meeting({
       {meeting && (
         <>
           <header className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight" data-testid="meeting-heading">
-                {meetingTitle(meeting).text}
-              </h1>
+            <div className="min-w-0 flex-1">
+              <MeetingTitle
+                meeting={meeting}
+                onRenamed={(title) => setMeeting({ ...meeting, title })}
+                onError={setError}
+              />
               <p className="mt-1 text-sm text-muted-foreground tabular-nums">
                 {formatDateTime(meeting.started_at)} · {formatDuration(meeting.duration_ms)}
               </p>
@@ -177,7 +190,9 @@ export function Meeting({
                   ? `Transcription failed: ${job.error ?? "unknown error"}`
                   : job.stage === "waiting"
                     ? "Waiting to be transcribed…"
-                    : `Transcribing… ${Math.round(job.progress * 100)}%`}
+                    : job.stage === "mixing"
+                      ? `Preparing audio… ${Math.round(job.progress * 100)}%`
+                      : `Transcribing… ${Math.round(job.progress * 100)}%`}
               </p>
               {job.stage !== "failed" && (
                 <div className="h-1 overflow-hidden rounded-full bg-muted">
@@ -208,6 +223,7 @@ export function Meeting({
                 voices={voices}
                 meName={meName}
                 onRenameMe={renameMe}
+                inRoom={meeting.in_room}
                 onSeek={meeting.mix_url ? seek : undefined}
                 currentMs={currentMs}
                 focusMs={focusMs}
@@ -236,7 +252,7 @@ export function Meeting({
                 onTime={setCurrentMs}
               />
             </div>
-          ) : (
+          ) : job?.stage === "mixing" ? null : ( // the job line above says "Preparing audio…"
             <p className="text-sm text-muted-foreground" data-testid="no-mix">
               No playback file for this meeting.
             </p>
@@ -244,5 +260,79 @@ export function Meeting({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The meeting's title, renamed in place (VRT-46): click it, type, Enter or leaving the field
+ * saves, Esc cancels; empty goes back to the automatic title.
+ */
+function MeetingTitle({
+  meeting,
+  onRenamed,
+  onError,
+}: {
+  meeting: MeetingDetail;
+  onRenamed: (title: string) => void;
+  onError: (e: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const cancelled = useRef(false);
+  const auto = meetingTitle({ title: "", started_at: meeting.started_at }).text;
+
+  const save = async () => {
+    if (draft === null) return;
+    const title = draft.trim();
+    setDraft(null);
+    if (cancelled.current || title === meeting.title) return;
+    try {
+      await call("rename_meeting", { id: meeting.id, title });
+      onRenamed(title);
+    } catch (e) {
+      onError(String(e));
+    }
+  };
+
+  if (draft !== null) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            cancelled.current = true;
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder={auto}
+        aria-label="Meeting title"
+        className="-mx-1 w-full rounded-md bg-transparent px-1 text-xl font-semibold tracking-tight ring-1 ring-ring outline-none placeholder:text-muted-foreground/60"
+        data-testid="meeting-title-edit"
+      />
+    );
+  }
+  return (
+    <h1 className="text-xl font-semibold tracking-tight" data-testid="meeting-heading">
+      <button
+        type="button"
+        onClick={() => {
+          cancelled.current = false;
+          setDraft(meeting.title || "");
+        }}
+        title="Rename"
+        className="group -mx-1 inline-flex items-center gap-2 rounded-md px-1 text-left hover:bg-muted"
+        data-testid="rename-meeting"
+      >
+        {meetingTitle(meeting).text}
+        <Pencil
+          className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          aria-hidden
+        />
+      </button>
+    </h1>
   );
 }

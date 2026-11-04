@@ -130,7 +130,9 @@ if RENAME:
 
 stop_at = time.time()
 s.js("document.querySelector('[data-testid=stop]').click()")
-s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 60)
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 60)  # Stop opens the recording
+s.js("document.querySelector('[data-testid=back]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 10)
 processing = s.invoke("list_meetings")
 state = next(m["status"] for m in processing if m["id"] == meeting)
 s.check(state in ("processing", "done"), f"meeting is '{state}' right after Stop")

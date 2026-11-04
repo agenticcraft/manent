@@ -92,7 +92,9 @@ s.wait_for("return document.querySelector('[data-testid=recording-timer]') && tr
 time.sleep(2)
 meeting = s.invoke("current_recording")["meeting_id"]
 s.js("document.querySelector('[data-testid=stop]').click()")
-s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 30)
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 30)  # Stop opens the recording
+s.js("document.querySelector('[data-testid=back]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 10)
 if LOG.is_file():
     s.check(f"meeting {meeting}: rolling passes every 30 s" in LOG.read_text(errors="replace"),
             "the next recording used the 30 s interval")

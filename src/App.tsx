@@ -1,6 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { FileAudio, Library as LibraryIcon, Settings as SettingsIcon, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sidebar, type NavItem } from "@/components/Sidebar";
 import { call, on, type RecordingStarted } from "@/lib/ipc";
 import { followSystemTheme } from "@/lib/theme";
@@ -20,6 +20,10 @@ const NAV: NavItem<Page>[] = [
 
 export default function App() {
   const [page, setPage] = useState<Page | "live">("library");
+  const pageRef = useRef(page);
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
   const [session, setSession] = useState<RecordingStarted | null>(null);
   const [openMeeting, setOpenMeeting] = useState<number | null>(null);
   /** Where to open the meeting (a search match), ms. */
@@ -81,9 +85,14 @@ export default function App() {
       setSession(s);
       setPage("live");
     });
-    const offStopped = on("recording:stopped", () => {
+    const offStopped = on("recording:stopped", (meetingId) => {
       setSession(null);
-      setPage((p) => (p === "live" ? "library" : p));
+      // Stopped from the tray while watching it: open the recording, as Stop does.
+      if (pageRef.current === "live") {
+        setPage("library");
+        setOpenMeeting(meetingId);
+        setFocusMs(undefined);
+      }
     });
     return () => {
       offStarted.then((f) => f());
@@ -96,15 +105,35 @@ export default function App() {
     setSession(s);
     setPage("live");
   };
+  // Record in the sidebar (VRT-49): start from any screen, or go back to the running one.
+  const [starting, setStarting] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const onRecord = async () => {
+    if (session) {
+      setPage("live");
+      return;
+    }
+    setStarting(true);
+    setRecordError(null);
+    try {
+      await startRecording();
+    } catch (e) {
+      setRecordError(String(e));
+    } finally {
+      setStarting(false);
+    }
+  };
 
   let content;
   if (page === "live" && session) {
     content = (
       <Live
         session={session}
-        onStopped={() => {
+        onStopped={(meetingId) => {
+          // Straight to the recording: its transcript, and the player once it's ready (VRT-45).
           setSession(null);
           setPage("library");
+          showMeeting(meetingId);
         }}
       />
     );
@@ -133,15 +162,24 @@ export default function App() {
         items={NAV}
         active={page === "live" ? null : page}
         onSelect={(p) => {
+          setRecordError(null);
           setPage(p);
           setOpenMeeting(null);
         }}
-        recording={
-          session ? { active: page === "live", onSelect: () => setPage("live") } : undefined
-        }
+        record={{
+          recording: !!session,
+          active: page === "live" && !!session,
+          busy: starting,
+          onSelect: () => void onRecord(),
+        }}
       />
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-10 py-8">
         <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-1 flex-col">
+          {recordError && (
+            <p role="alert" className="mb-4 text-sm text-destructive" data-testid="record-error">
+              {recordError}
+            </p>
+          )}
           {dropError && (
             <p role="alert" className="mb-4 text-sm text-destructive" data-testid="drop-error">
               {dropError}

@@ -65,6 +65,7 @@ export function TranscriptBlocks({
   meName,
   onRenameMe,
   highlightLast = false,
+  inRoom = false,
   onSeek,
   currentMs,
   focusMs,
@@ -76,6 +77,8 @@ export function TranscriptBlocks({
   meName: string;
   onRenameMe: (name: string) => void;
   highlightLast?: boolean;
+  /** In a room the mic's captions are not the user's alone (VRT-47). */
+  inRoom?: boolean;
   onSeek?: (ms: number) => void;
   currentMs?: number;
   /** Scroll this moment into view (a search match). */
@@ -176,6 +179,7 @@ export function TranscriptBlocks({
                   label={b.label}
                   kind={b.kind}
                   meName={meName}
+                  inRoom={inRoom}
                   onRenameMe={onRenameMe}
                 />
                 {onSeek ? (

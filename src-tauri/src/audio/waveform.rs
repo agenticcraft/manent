@@ -43,10 +43,43 @@ pub fn waveform(tracks: &[&Path], bins: usize) -> Result<Vec<f32>, claxon::Error
             }
         }
     }
+    Ok(normalise(out))
+}
+
+/// The waveform from the mixdown's power per frame (VRT-45): RMS per bin, scaled as above.
+pub fn waveform_from_power(frame_power: &[f32], bins: usize) -> Vec<f32> {
+    if frame_power.is_empty() || bins == 0 {
+        return vec![0.0; bins];
+    }
+    let mut sums = vec![(0.0f64, 0u64); bins];
+    for (i, &p) in frame_power.iter().enumerate() {
+        let b = &mut sums[(i * bins / frame_power.len()).min(bins - 1)];
+        b.0 += f64::from(p);
+        b.1 += 1;
+    }
+    normalise(
+        sums.into_iter()
+            .map(|(sum, n)| {
+                if n > 0 {
+                    (sum / n as f64).sqrt() as f32
+                } else {
+                    0.0
+                }
+            })
+            .collect(),
+    )
+}
+
+/// Scale so the 98th percentile reaches 1.
+fn normalise(out: Vec<f32>) -> Vec<f32> {
+    let bins = out.len();
+    if bins == 0 {
+        return out;
+    }
     let mut sorted = out.clone();
     sorted.sort_by(f32::total_cmp);
     let top = sorted[(bins * 98 / 100).min(bins - 1)].max(f32::EPSILON);
-    Ok(out.into_iter().map(|v| (v / top).min(1.0)).collect())
+    out.into_iter().map(|v| (v / top).min(1.0)).collect()
 }
 
 #[cfg(test)]
@@ -76,5 +109,16 @@ mod tests {
             wave[2..].iter().all(|&v| v > 0.1 && v < 0.5),
             "the quieter track elsewhere: {wave:?}"
         );
+    }
+
+    #[test]
+    fn the_waveform_from_the_mix_power_has_its_loud_part_in_place() {
+        // 4 s of 20 ms frames: loud in the first second, quiet after.
+        let power: Vec<f32> = (0..200).map(|i| if i < 50 { 0.25 } else { 0.01 }).collect();
+        let wave = waveform_from_power(&power, 8);
+        assert_eq!(wave.len(), 8);
+        assert!(wave[0] > 0.9 && wave[1] > 0.9, "{wave:?}");
+        assert!(wave[2..].iter().all(|&v| v > 0.1 && v < 0.5), "{wave:?}");
+        assert_eq!(waveform_from_power(&[], 4), vec![0.0; 4]);
     }
 }

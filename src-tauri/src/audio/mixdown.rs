@@ -39,6 +39,9 @@ pub enum MixError {
 pub struct MixSummary {
     pub seconds: f64,
     pub bytes: u64,
+    /// Mean square of the mix per 20 ms frame: the waveform comes from it (VRT-45), so the
+    /// tracks are decoded once.
+    pub frame_power: Vec<f32>,
 }
 
 /// One input track, decoded and resampled on demand.
@@ -52,6 +55,8 @@ struct Input {
     mono: Vec<f32>,
     queue: VecDeque<f32>,
     done: bool,
+    /// Samples at the output rate, if the header knows the length (for progress).
+    expected: Option<u64>,
 }
 
 impl Input {
@@ -60,8 +65,13 @@ impl Input {
         let reader =
             claxon::FlacReader::new(file).map_err(|e| MixError::Flac(path.to_owned(), e))?;
         let info = reader.streaminfo();
+        let expected = info
+            .samples
+            .filter(|&n| n > 0)
+            .map(|n| n * u64::from(rate) / u64::from(info.sample_rate));
         Ok(Self {
             path: path.to_owned(),
+            expected,
             resampler: Some(StreamResampler::new(info.sample_rate, rate)),
             channels: info.channels,
             scale: 1.0 / (1u32 << (info.bits_per_sample - 1)) as f32,
@@ -117,7 +127,17 @@ pub fn decode_mono(path: &Path, rate: u32) -> Result<Vec<f32>, MixError> {
 }
 
 /// Mix `tracks` into `out` (Ogg Opus, mono, 48 kHz).
-pub fn mixdown(tracks: &[PathBuf], out: &Path) -> Result<MixSummary, MixError> {
+#[cfg(test)]
+fn mixdown(tracks: &[PathBuf], out: &Path) -> Result<MixSummary, MixError> {
+    mixdown_with_progress(tracks, out, &mut |_| {})
+}
+
+/// Mix `tracks` into `out` (Ogg Opus, mono, 48 kHz), reporting the share done (0..1) about every second of audio.
+pub fn mixdown_with_progress(
+    tracks: &[PathBuf],
+    out: &Path,
+    progress: &mut dyn FnMut(f64),
+) -> Result<MixSummary, MixError> {
     if tracks.is_empty() {
         return Err(MixError::NoTracks);
     }
@@ -125,6 +145,8 @@ pub fn mixdown(tracks: &[PathBuf], out: &Path) -> Result<MixSummary, MixError> {
         .iter()
         .map(|p| Input::open(p, RATE))
         .collect::<Result<Vec<_>, _>>()?;
+    let expected = inputs.iter().filter_map(|i| i.expected).max().unwrap_or(0);
+    let mut frame_power = Vec::new();
 
     let mut encoder = opus::Encoder::new(RATE, opus::Channels::Mono, opus::Application::Voip)?;
     encoder.set_bitrate(opus::Bitrate::Bits(BITRATE))?;
@@ -167,7 +189,11 @@ pub fn mixdown(tracks: &[PathBuf], out: &Path) -> Result<MixSummary, MixError> {
         for v in &mut frame {
             *v = v.clamp(-1.0, 1.0);
         }
+        frame_power.push(frame[..n].iter().map(|v| v * v).sum::<f32>() / n as f32);
         total += n as u64;
+        if expected > 0 && (total / FRAME as u64).is_multiple_of(PACKETS_PER_PAGE) {
+            progress((total as f64 / expected as f64).min(1.0));
+        }
         if let Some(p) = pending.take() {
             writer.write_packet(p, SERIAL, page_end(encoded), pre_skip + encoded)?;
         }
@@ -194,6 +220,7 @@ pub fn mixdown(tracks: &[PathBuf], out: &Path) -> Result<MixSummary, MixError> {
     Ok(MixSummary {
         seconds: total as f64 / RATE as f64,
         bytes: std::fs::metadata(out)?.len(),
+        frame_power,
     })
 }
 
@@ -354,8 +381,16 @@ mod tests {
         write_tone(&a, 440.0, 48_000, 1, 1.0);
         write_tone(&b, 440.0, 48_000, 1, 0.5);
         let out = dir.join("mix.opus");
-        let summary = mixdown(&[a, b], &out).unwrap();
+        let mut reported = Vec::new();
+        let summary = mixdown_with_progress(&[a, b], &out, &mut |f| reported.push(f)).unwrap();
         assert!((summary.seconds - 1.0).abs() < 0.01);
+        assert_eq!(summary.frame_power.len(), 50, "one value per 20 ms");
+        assert!(
+            summary.frame_power[10] > 0.1,
+            "both tones: {}",
+            summary.frame_power[10]
+        );
+        assert_eq!(reported, vec![1.0], "progress each second of audio");
         let (_, pcm, _) = decode(&out);
         assert_eq!(pcm.len(), 48_000);
     }

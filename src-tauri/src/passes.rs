@@ -1,9 +1,11 @@
 //! Speaker labels for the rolling and final passes (VRT-17, doc-2 §1.2-§1.4).
 //!
-//! The mic track is "Me". The system track is diarized; its speaker slots are per call, so a
-//! rolling pass maps them to meeting labels ("1", "2", ...) by continuity with the words it
-//! already labelled, then by voice embedding, and otherwise starts a new label. The mic also
-//! hears the speakers (bleed): the system track wins where both tracks say the same words.
+//! In a call the mic track is "Me". The system track is diarized; its speaker slots are per
+//! call, so a rolling pass maps them to meeting labels ("1", "2", ...) by continuity with the
+//! words it already labelled, then by voice embedding, and otherwise starts a new label. In a
+//! room (VRT-47) the mic is diarized the same way, numbered together with the system track.
+//! The mic also hears the speakers (bleed): the system track wins where both tracks say the
+//! same words.
 
 use std::collections::HashMap;
 
@@ -108,15 +110,26 @@ pub fn system_blocks(
         .collect()
 }
 
-/// Final pass: one diarization of the whole meeting, so slots are consistent; number them
-/// in the order they first speak.
-pub fn number_by_appearance(words: &[Word], turns: &[SpeakerTurn]) -> HashMap<u32, String> {
-    let mut labels = HashMap::new();
-    for seg in transcript::merge(words, turns) {
-        if let Some(slot) = seg.speaker {
-            let n = labels.len() + 1;
-            labels.entry(slot).or_insert_with(|| n.to_string());
+/// Final pass: one diarization per diarized track over the whole meeting, so slots are
+/// consistent; number them over all tracks in the order they first speak (a mic slot and a
+/// system slot are never the same label). One label map per track, in the given order.
+pub fn number_by_appearance(tracks: &[(&[Word], &[SpeakerTurn])]) -> Vec<HashMap<u32, String>> {
+    let mut first: Vec<(u32, usize, u32)> = Vec::new();
+    for (k, (words, turns)) in tracks.iter().enumerate() {
+        let mut seen = Vec::new();
+        for seg in transcript::merge(words, turns) {
+            if let Some(slot) = seg.speaker
+                && !seen.contains(&slot)
+            {
+                seen.push(slot);
+                first.push((seg.start_ms, k, slot));
+            }
         }
+    }
+    first.sort_unstable();
+    let mut labels = vec![HashMap::new(); tracks.len()];
+    for (n, (_, k, slot)) in first.into_iter().enumerate() {
+        labels[k].insert(slot, (n + 1).to_string());
     }
     labels
 }
@@ -134,14 +147,21 @@ pub struct RollingLabels {
     next: u32,
     /// Best embedding per label (the one with the most clean speech).
     voices: Vec<(String, Vec<f32>, f32)>,
-    /// System words already labelled (meeting ms), for continuity.
-    recent: Vec<(u32, u32, String)>,
+    /// Words already labelled per track (track id, meeting ms), for continuity: a slot only
+    /// continues a label of its own track.
+    recent: Vec<(i64, u32, u32, String)>,
 }
 
 impl RollingLabels {
-    /// Labels for the slots of one rolling pass. `diar` and `words` are in meeting ms; only
-    /// slots with words in `kept` get a new label when nothing else matches.
-    pub fn assign(&mut self, diar: &Diarization, kept: &[Word]) -> HashMap<u32, String> {
+    /// Labels for the slots of one track's diarization in a rolling pass. `diar` and `words`
+    /// are in meeting ms; only slots with words in `kept` get a new label when nothing else
+    /// matches. Numbering and voices are shared by all tracks.
+    pub fn assign(
+        &mut self,
+        track: i64,
+        diar: &Diarization,
+        kept: &[Word],
+    ) -> HashMap<u32, String> {
         let slot_at = |start: u32, end: u32| {
             diar.turns
                 .iter()
@@ -157,7 +177,7 @@ impl RollingLabels {
         };
         // (a) Continuity: earlier labelled words heard again in this diarization's context.
         let mut tally: HashMap<(u32, String), u32> = HashMap::new();
-        for (start, end, label) in &self.recent {
+        for (_, start, end, label) in self.recent.iter().filter(|r| r.0 == track) {
             if let Some(slot) = slot_at(*start, *end) {
                 *tally.entry((slot, label.clone())).or_default() += end - start;
             }
@@ -221,13 +241,18 @@ impl RollingLabels {
             if let Some(label) =
                 slot_at(w.start_ms, w.end_ms.max(w.start_ms + 1)).and_then(|s| labels.get(&s))
             {
-                self.recent
-                    .push((w.start_ms, w.end_ms.max(w.start_ms + 1), label.clone()));
+                self.recent.push((
+                    track,
+                    w.start_ms,
+                    w.end_ms.max(w.start_ms + 1),
+                    label.clone(),
+                ));
             }
         }
-        if let Some(&(_, last_end, _)) = self.recent.last() {
+        let last_end = self.recent.iter().map(|r| r.2).max();
+        if let Some(last_end) = last_end {
             self.recent
-                .retain(|(_, end, _)| end + MEMORY_MS >= last_end);
+                .retain(|(_, _, end, _)| end + MEMORY_MS >= last_end);
         }
         labels
     }
@@ -329,7 +354,7 @@ mod tests {
     fn final_labels_follow_the_order_people_first_speak() {
         let turns = [turn(3, 0, 1000), turn(0, 1000, 2000), turn(3, 2000, 3000)];
         let words = [w("a", 100, 400), w("b", 1100, 1400), w("c", 2100, 2400)];
-        let labels = number_by_appearance(&words, &turns);
+        let labels = number_by_appearance(&[(&words, &turns)]).remove(0);
         assert_eq!((labels[&3].as_str(), labels[&0].as_str()), ("1", "2"));
         let blocks = system_blocks(&words, &turns, &labels);
         assert_eq!(
@@ -348,7 +373,7 @@ mod tests {
             vec![voice(0, [1.0, 0.0, 0.0]), voice(1, [0.0, 1.0, 0.0])],
         );
         let k1 = [w("hi", 500, 1500), w("hello", 4500, 5500)];
-        let l1 = state.assign(&d1, &k1);
+        let l1 = state.assign(2, &d1, &k1);
         assert_eq!((l1[&0].as_str(), l1[&1].as_str()), ("1", "2"));
         // Pass 2 (context 6-8 s overlaps pass 1): slot numbers swapped by the diarizer.
         // Slot 0 now covers the earlier "hello" -> label 2 by continuity; slot 1 is a voice
@@ -367,17 +392,48 @@ mod tests {
             w("yes", 12500, 13000),
             w("and", 6000, 7000),
         ];
-        let l2 = state.assign(&d2, &k2);
+        let l2 = state.assign(2, &d2, &k2);
         assert_eq!(l2[&0], "2", "continuity");
         assert_eq!(l2[&1], "1", "same voice");
         assert_eq!(l2[&2], "3", "a new speaker");
     }
 
     #[test]
+    fn in_a_room_mic_and_system_speakers_are_numbered_together() {
+        // The mic: two people in the room (slots 0 and 1); the system track: one remote
+        // person, also slot 0, who speaks between them.
+        let mic_turns = [turn(0, 0, 1000), turn(1, 3000, 4000)];
+        let mic_words = [w("hallo", 100, 500), w("ja", 3100, 3500)];
+        let sys_turns = [turn(0, 1500, 2500)];
+        let sys_words = [w("hoi", 1600, 2000)];
+        let labels = number_by_appearance(&[(&mic_words, &mic_turns), (&sys_words, &sys_turns)]);
+        assert_eq!((labels[0][&0].as_str(), labels[0][&1].as_str()), ("1", "3"));
+        assert_eq!(
+            labels[1][&0], "2",
+            "the same slot number on another track is someone else"
+        );
+    }
+
+    #[test]
+    fn rolling_continuity_stays_within_a_track() {
+        let mut state = RollingLabels::default();
+        // The system track's person speaks 0-4 s; the mic hears someone in the room at the
+        // same time (different voices, so no voice match).
+        let sys = diar(vec![turn(0, 0, 4000)], vec![voice(0, [1.0, 0.0, 0.0])]);
+        let l_sys = state.assign(2, &sys, &[w("remote", 500, 1500)]);
+        let mic = diar(vec![turn(0, 0, 4000)], vec![voice(0, [0.0, 1.0, 0.0])]);
+        let l_mic = state.assign(1, &mic, &[w("room", 600, 1400)]);
+        assert_eq!((l_sys[&0].as_str(), l_mic[&0].as_str()), ("1", "2"));
+        // The next pass: each track's slot continues its own label.
+        let l_mic = state.assign(1, &mic, &[w("again", 2000, 2500)]);
+        assert_eq!(l_mic[&0], "2");
+    }
+
+    #[test]
     fn a_slot_without_words_or_voice_gets_no_new_label() {
         let mut state = RollingLabels::default();
         let d = diar(vec![turn(0, 0, 1000), turn(1, 2000, 3000)], vec![]);
-        let labels = state.assign(&d, &[w("only", 100, 500)]);
+        let labels = state.assign(2, &d, &[w("only", 100, 500)]);
         assert_eq!(labels.len(), 1);
         assert_eq!(labels[&0], "1");
     }

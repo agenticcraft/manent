@@ -59,7 +59,9 @@ def record(s, wav):
 
 def stop_and_finish(s, meeting):
     s.js("document.querySelector('[data-testid=stop]').click()")
-    s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 60)
+    s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 60)  # Stop opens the recording
+    s.js("document.querySelector('[data-testid=back]').click()")
+    s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 10)
     deadline = time.time() + 600
     while time.time() < deadline:
         if next(m for m in s.invoke("list_meetings") if m["id"] == meeting)["status"] == "done":

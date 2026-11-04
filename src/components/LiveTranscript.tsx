@@ -15,9 +15,12 @@ const FOLLOW_PX = 48;
 export function LiveTranscript({
   session,
   paused,
+  inRoom,
 }: {
   session: RecordingStarted;
   paused: boolean;
+  /** In a room the mic's captions are anyone there (VRT-47). */
+  inRoom: boolean;
 }) {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +113,7 @@ export function LiveTranscript({
           voices={voices}
           meName={meName}
           onRenameMe={renameMe}
+          inRoom={inRoom}
           highlightLast
         />
       </div>

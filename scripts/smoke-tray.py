@@ -93,8 +93,10 @@ time.sleep(2)
 
 # Stop from the tray.
 click(bus, "Stop recording")
-back = s.wait_for("return document.querySelector('[data-testid=new-recording]') && !document.querySelector('[data-testid=recording-timer]')", 30)
-s.check(bool(back) and s.invoke("current_recording") is None, "tray 'Stop recording' stops it; the window goes back to the Library")
+back = s.wait_for("return document.querySelector('[data-testid=meeting-heading]') && !document.querySelector('[data-testid=recording-timer]')", 30)
+s.check(bool(back) and s.invoke("current_recording") is None, "tray 'Stop recording' stops it; the window opens the recording")
+s.js("document.querySelector('[data-testid=back]').click()")
+s.wait_for("return document.querySelector('[data-testid=new-recording]')", 10)
 s.check(wait_until(lambda: "Start recording" in menu(bus) and icon(bus) == idle_icon), "tray back to idle")
 
 # Started in the window, stopped in the window: the tray follows.
@@ -108,7 +110,7 @@ s.js("const el = document.querySelector('[data-testid=meeting-title-input]');"
 meeting = s.invoke("current_recording")["meeting_id"]
 time.sleep(1)
 click(bus, "Stop recording")  # while the title field still has focus
-s.wait_for("return document.querySelector('[data-testid=new-recording]')", 30)
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 30)
 s.check(wait_until(lambda: s.invoke("get_meeting", {"id": meeting})["title"] == "Typed, not saved"),
         "a title being typed is kept when the tray stops the recording")
 s.screenshot(OUT / "tray-after-stop.png")

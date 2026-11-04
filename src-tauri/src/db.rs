@@ -50,6 +50,8 @@ pub struct Meeting {
     pub dir: String,
     /// The app died during this recording and it was recovered (VRT-41).
     pub interrupted: bool,
+    /// Recorded in a room: everyone there is on the mic (VRT-47); otherwise a call (mic = me).
+    pub in_room: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
@@ -345,6 +347,16 @@ impl Db {
     pub async fn delete_inbox_item(&self, remote_path: &str) -> Result<()> {
         sqlx::query("DELETE FROM sync_inbox WHERE remote_path = ?")
             .bind(remote_path)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Whether the meeting was in a room (several people on the mic) or a call (VRT-47).
+    pub async fn set_in_room(&self, id: i64, in_room: bool) -> Result<()> {
+        sqlx::query("UPDATE meetings SET in_room = ? WHERE id = ?")
+            .bind(in_room)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -1453,6 +1465,6 @@ mod tests {
             .fetch_one(&db.pool)
             .await
             .unwrap();
-        assert_eq!(migrations.0, 5, "each migration applied once");
+        assert_eq!(migrations.0, 6, "each migration applied once");
     }
 }

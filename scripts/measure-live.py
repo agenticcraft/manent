@@ -104,7 +104,9 @@ if window:
 s.screenshot(OUT / "live-long-dark.png")
 s.js("document.querySelector('[data-testid=stop]').click()")
 stop = time.time()
-s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 60)
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 60)  # Stop opens the recording
+s.js("document.querySelector('[data-testid=back]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 10)
 while any(j["stage"] not in ("done", "failed") for j in s.invoke("list_jobs")):
     time.sleep(2)
 final_s = time.time() - stop

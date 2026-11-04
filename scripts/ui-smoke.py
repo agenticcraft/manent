@@ -56,13 +56,13 @@ def shot(name):
 try:
     for _ in range(30):  # wait until the webview has rendered the shell
         try:
-            if js("return document.querySelectorAll('nav[aria-label=Main] button').length") == 3:
+            if js("return document.querySelectorAll('nav[aria-label=Main] button').length") == 4:
                 break
         except RuntimeError:
             pass
         time.sleep(0.5)
     nav = js("return [...document.querySelectorAll('nav[aria-label=Main] button')].map(b => b.textContent.trim())")
-    check(nav == ["Library", "Speakers", "Settings"], f"sidebar items {nav}")
+    check(nav == ["Record", "Library", "Speakers", "Settings"], f"sidebar items {nav}")
     font = js("return getComputedStyle(document.body).fontFamily")
     check("Inter" in font, f"body font is Inter ({font})")
     system_dark = js("return matchMedia('(prefers-color-scheme: dark)').matches")
@@ -113,7 +113,7 @@ try:
     for theme in ("light", "dark"):
         js("document.documentElement.classList.toggle('dark', arguments[0] === 'dark')", theme)
         for i, page in enumerate(["Library", "Speakers", "Settings"]):
-            js("document.querySelectorAll('nav[aria-label=Main] button')[arguments[0]].click()", i)
+            js("document.querySelectorAll('nav[aria-label=Main] ul button')[arguments[0]].click()", i)
             time.sleep(0.6)
             title = js("return document.querySelector('main h1')?.textContent")
             current = js("return document.querySelector('nav [aria-current=page]')?.textContent.trim()")

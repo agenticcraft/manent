@@ -1,6 +1,7 @@
 //! Tauri commands exposed to the UI. Keep in sync with `src/lib/ipc.ts`.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,7 +19,7 @@ use crate::media_server::{MIX_FILE, MediaServer};
 use crate::passes::{self, Labelled};
 use crate::paths::AppPaths;
 use crate::power::SleepBlock;
-use crate::rolling::{self, LabelVoice, PassResult, PassTrack, Rolling};
+use crate::rolling::{self, LabelVoice, PassOptions, PassResult, PassTrack, Rolling};
 use crate::speakers;
 
 /// Basic app information, shown in Settings > About.
@@ -57,6 +58,8 @@ struct ActiveRecording {
     /// Database rows of the tracks, in source order (created at start, VRT-16).
     track_ids: Vec<i64>,
     captions: bool,
+    /// In a room (several people on the mic) or a call; switchable while recording (VRT-47).
+    in_room: Arc<AtomicBool>,
     /// Live transcription: caption workers (VRT-16) and rolling passes (VRT-17).
     workers: Workers,
     rolling: Option<Rolling>,
@@ -91,6 +94,8 @@ pub struct RecordingStarted {
     pub sources: Vec<SourceInfo>,
     /// Live captions are on (the engine and model are downloaded).
     pub captions: bool,
+    /// In a room: everyone there is on the mic; otherwise a call, the mic is the user (VRT-47).
+    pub in_room: bool,
 }
 
 /// A transcript segment for the UI: a live caption (no label) or a pass's speaker block.
@@ -130,8 +135,6 @@ pub struct CaptionError {
 pub struct RecordingStopped {
     pub meeting_id: i64,
     pub tracks: Vec<TrackSummary>,
-    /// The playback mixdown, or None if it could not be made (the tracks are still kept).
-    pub mix: Option<String>,
 }
 
 /// The configured sources that are available now; without a usable configuration the
@@ -288,6 +291,17 @@ pub async fn start_recording(
     db.set_meeting_dir(meeting_id, &dir.display().to_string())
         .await
         .map_err(|e| e.to_string())?;
+    // A call or a room, as the last recording was (VRT-47).
+    let in_room = db
+        .get_setting::<bool>(IN_ROOM_SETTING)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+    db.set_in_room(meeting_id, in_room)
+        .await
+        .map_err(|e| e.to_string())?;
+    let in_room = Arc::new(AtomicBool::new(in_room));
     // Track rows first, so live captions can refer to them while recording.
     let mut track_ids = Vec::new();
     for (source, name) in sources.iter().zip(audio::track_file_names(&sources)) {
@@ -432,7 +446,10 @@ pub async fn start_recording(
             &paths,
             meeting_id,
             tracks,
-            interval,
+            PassOptions {
+                interval,
+                in_room: in_room.clone(),
+            },
         );
     }
     let awake = SleepBlock::acquire("Recording a meeting");
@@ -447,6 +464,7 @@ pub async fn start_recording(
         sources: sources.clone(),
         track_ids,
         captions,
+        in_room: in_room.clone(),
         workers,
         rolling: passes,
         _awake: awake,
@@ -456,6 +474,7 @@ pub async fn start_recording(
         started_at,
         sources,
         captions,
+        in_room: in_room.load(Ordering::SeqCst),
     };
     // The tray and the window follow, whoever started it (VRT-22).
     crate::tray::set_recording(&app, true);
@@ -473,7 +492,31 @@ pub async fn current_recording(
         started_at: a.started_at,
         sources: a.sources.clone(),
         captions: a.captions,
+        in_room: a.in_room.load(Ordering::SeqCst),
     }))
+}
+
+/// Settings key for the last choice between a call and a room (VRT-47).
+pub const IN_ROOM_SETTING: &str = "recording.in_room";
+
+/// Switch the running recording between a call (the mic is the user) and a room (everyone
+/// there is on the mic). The next rolling pass and the final pass follow; the next recording
+/// starts the same way.
+#[tauri::command]
+pub async fn set_recording_in_room(
+    state: State<'_, RecorderState>,
+    db: State<'_, Db>,
+    in_room: bool,
+) -> Result<(), String> {
+    let current = state.0.lock().await;
+    let active = current.as_ref().ok_or("no recording")?;
+    active.in_room.store(in_room, Ordering::SeqCst);
+    db.set_in_room(active.meeting_id, in_room)
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_setting(IN_ROOM_SETTING, &in_room)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -552,60 +595,25 @@ pub async fn stop_recording(
             .await
             .map_err(|e| e.to_string())?;
     }
-    let duration_ms = tracks.iter().map(|t| t.seconds).fold(0.0, f64::max) * 1000.0;
-    // Playback mixdown; a failure here must not lose the recording itself.
-    let files: Vec<std::path::PathBuf> = tracks.iter().map(|t| t.file.clone()).collect();
-    let mix_path = files
-        .first()
-        .and_then(|f| f.parent())
-        .map(|dir| dir.join(MIX_FILE));
-    let mix = match mix_path {
-        Some(path) => {
-            let target = path.clone();
-            match tauri::async_runtime::spawn_blocking(move || audio::mixdown(&files, &target))
-                .await
-            {
-                Ok(Ok(_)) => Some(path.display().to_string()),
-                Ok(Err(e)) => {
-                    eprintln!("mixdown failed for meeting {meeting_id}: {e}");
-                    None
-                }
-                Err(e) => {
-                    eprintln!("mixdown task failed for meeting {meeting_id}: {e}");
-                    None
-                }
-            }
-        }
-        None => None,
-    };
-    let duration_ms = duration_ms.round() as i64;
-    // With transcription on, the final pass runs as a background job ("processing").
-    let status = if pass_tracks.is_empty() {
-        "done"
-    } else {
-        "processing"
-    };
-    db.finish_meeting(meeting_id, duration_ms, status)
+    let duration_ms =
+        (tracks.iter().map(|t| t.seconds).fold(0.0, f64::max) * 1000.0).round() as i64;
+    // The playback file, then (with transcription on) the final pass run as a job
+    // ("processing"), so Stop returns at once, also after a long meeting (VRT-45).
+    db.finish_meeting(meeting_id, duration_ms, "processing")
         .await
         .map_err(|e| e.to_string())?;
-    if !pass_tracks.is_empty() {
-        let title = db
-            .get_meeting(meeting_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|m| m.title)
-            .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| "Untitled meeting".into());
-        jobs.transcribe(meeting_id, title);
-    }
+    let title = db
+        .get_meeting(meeting_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|m| m.title)
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| "Untitled meeting".into());
+    jobs.finish_recording(meeting_id, title, !pass_tracks.is_empty());
     crate::tray::set_recording(&app, false);
     let _ = app.emit("recording:stopped", meeting_id);
-    Ok(RecordingStopped {
-        meeting_id,
-        tracks,
-        mix,
-    })
+    Ok(RecordingStopped { meeting_id, tracks })
 }
 
 /// Rename a meeting (also while it is being recorded).
@@ -827,7 +835,7 @@ fn start_rolling(
     paths: &AppPaths,
     meeting_id: i64,
     tracks: Vec<PassTrack>,
-    interval: std::time::Duration,
+    options: PassOptions,
 ) -> Option<Rolling> {
     let kinds: HashMap<i64, SourceKind> = tracks
         .iter()
@@ -883,13 +891,13 @@ fn start_rolling(
     };
     eprintln!(
         "meeting {meeting_id}: rolling passes every {} s",
-        interval.as_secs()
+        options.interval.as_secs()
     );
     match rolling::spawn(
         tracks,
         engine.clone(),
         paths.tmp_dir(),
-        interval,
+        options,
         on_pass,
         on_error,
     ) {
@@ -1278,8 +1286,36 @@ pub async fn meeting_waveform(
     waveform_bars(&db, &paths, id).await
 }
 
+/// Bars in a meeting's waveform.
+const WAVEFORM_BINS: usize = 600;
+/// The cached waveform in the meeting folder.
+const WAVEFORM_FILE: &str = "waveform.json";
+
+/// A meeting's playback file and waveform from its tracks (VRT-45): mix.opus appears whole
+/// (written aside, then renamed), so the player never opens a half-written file; the waveform
+/// comes from the same decode.
+pub(crate) fn make_playback(
+    dir: &std::path::Path,
+    files: &[std::path::PathBuf],
+    progress: &mut dyn FnMut(f64),
+) -> Result<audio::MixSummary, String> {
+    let (part, mix) = (dir.join(format!("{MIX_FILE}.part")), dir.join(MIX_FILE));
+    let summary = audio::mixdown_with_progress(files, &part, progress).map_err(|e| {
+        let _ = std::fs::remove_file(&part);
+        e.to_string()
+    })?;
+    let bars = audio::waveform_from_power(&summary.frame_power, WAVEFORM_BINS);
+    std::fs::write(
+        dir.join(WAVEFORM_FILE),
+        serde_json::to_vec(&bars).unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::rename(&part, &mix).map_err(|e| e.to_string())?;
+    Ok(summary)
+}
+
 pub(crate) async fn waveform_bars(db: &Db, paths: &AppPaths, id: i64) -> Result<Vec<f32>, String> {
-    const BINS: usize = 600;
+    const BINS: usize = WAVEFORM_BINS;
     let meeting = db
         .get_meeting(id)
         .await
@@ -1288,7 +1324,7 @@ pub(crate) async fn waveform_bars(db: &Db, paths: &AppPaths, id: i64) -> Result<
     let dir = paths
         .contained_meeting_dir(std::path::Path::new(&meeting.dir))
         .ok_or("the meeting folder is missing")?;
-    let cache = dir.join("waveform.json");
+    let cache = dir.join(WAVEFORM_FILE);
     if let Some(bars) = std::fs::read(&cache)
         .ok()
         .and_then(|b| serde_json::from_slice::<Vec<f32>>(&b).ok())

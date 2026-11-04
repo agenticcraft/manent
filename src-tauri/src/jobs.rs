@@ -4,7 +4,7 @@
 //! `jobs:changed` event and they survive navigation (the state lives here, not in the UI).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -14,8 +14,8 @@ use tauri::{AppHandle, Emitter};
 
 use crate::audio::{self, SourceKind};
 use crate::commands::{
-    KEEP_AUDIO_SETTING, PassEvent, SpeakersChanged, named_stretches, new_segment, now_ms,
-    relabel_final, segment_view, waveform_bars,
+    KEEP_AUDIO_SETTING, PassEvent, SpeakersChanged, make_playback, named_stretches, new_segment,
+    now_ms, relabel_final, segment_view, waveform_bars,
 };
 use crate::db::{Db, NewSegment, NewTrack, Pass};
 use crate::engine::{EngineManager, SAMPLE_RATE};
@@ -28,12 +28,13 @@ use crate::rolling;
 #[derive(Debug, Clone, Serialize)]
 pub struct JobView {
     pub id: u64,
-    /// "import", "transcribe" or "recover".
+    /// "import", "transcribe", "recover", or "prepare" (only the playback file, VRT-45).
     pub kind: &'static str,
     /// The file or meeting name.
     pub name: String,
     pub meeting_id: Option<i64>,
-    /// "waiting", "decoding", "transcribing", "done" or "failed".
+    /// "waiting", "decoding", "mixing" (the playback file), "transcribing", "done" or
+    /// "failed".
     pub stage: &'static str,
     /// 0..1 (transcription is estimated from the audio length).
     pub progress: f64,
@@ -133,6 +134,19 @@ impl Jobs {
     }
 
     fn add(&self, kind: &'static str, name: String, meeting_id: Option<i64>, work: Work) -> u64 {
+        let id = self.register(kind, name, meeting_id, "waiting");
+        let _ = self.queue.send((id, work));
+        id
+    }
+
+    /// List a new job (not queued yet).
+    fn register(
+        &self,
+        kind: &'static str,
+        name: String,
+        meeting_id: Option<i64>,
+        stage: &'static str,
+    ) -> u64 {
         let id = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
         {
             let mut jobs = lock(&self.shared.jobs);
@@ -141,7 +155,7 @@ impl Jobs {
                 kind,
                 name,
                 meeting_id,
-                stage: "waiting",
+                stage,
                 progress: 0.0,
                 error: None,
             });
@@ -157,8 +171,51 @@ impl Jobs {
                 jobs.remove(i);
             }
         }
-        let _ = self.queue.send((id, work));
         self.shared.emit(true);
+        id
+    }
+
+    /// After Stop (VRT-45): make the playback file at once, on its own thread (it doesn't
+    /// need the engine, so it never waits behind another meeting's transcription), then
+    /// queue the final pass when the recording was transcribed live.
+    pub fn finish_recording(&self, meeting_id: i64, name: String, transcribe: bool) -> u64 {
+        let kind = if transcribe { "transcribe" } else { "prepare" };
+        let id = self.register(kind, name, Some(meeting_id), "mixing");
+        let (shared, queue) = (self.shared.clone(), self.queue.clone());
+        let spawned = std::thread::Builder::new()
+            .name("manent-mixdown".into())
+            .spawn(move || {
+                let s = &*shared;
+                if let Err(e) = tauri::async_runtime::block_on(ensure_playback(s, id, meeting_id)) {
+                    // The tracks are kept; only the player is missing.
+                    eprintln!("playback file for meeting {meeting_id}: {e}");
+                }
+                if transcribe {
+                    s.update(id, |j| {
+                        j.stage = "waiting";
+                        j.progress = 0.0;
+                    });
+                    let _ = queue.send((id, Work::Transcribe(meeting_id)));
+                    return;
+                }
+                let result = tauri::async_runtime::block_on(async {
+                    let ms = meeting_duration(s, meeting_id).await;
+                    s.db.finish_meeting(meeting_id, ms, "done").await
+                });
+                s.update(id, |j| match result {
+                    Ok(()) => {
+                        j.stage = "done";
+                        j.progress = 1.0;
+                    }
+                    Err(e) => {
+                        j.stage = "failed";
+                        j.error = Some(e.to_string());
+                    }
+                });
+            });
+        if let Err(e) = spawned {
+            eprintln!("start the mixdown of meeting {meeting_id}: {e}");
+        }
         id
     }
 
@@ -334,10 +391,7 @@ async fn run_import(s: &Shared, id: u64, path: PathBuf, meta: ImportMeta) -> Res
         .await
         .map_err(err)?;
     // Playback file, as for a recording; a failure leaves the meeting without a player only.
-    let (files, mix) = (vec![track_file], dir.join(MIX_FILE));
-    if let Ok(Err(e)) =
-        tauri::async_runtime::spawn_blocking(move || audio::mixdown(&files, &mix)).await
-    {
+    if let Err(e) = playback(s, meeting_id, &dir, vec![track_file], |_| {}).await {
         eprintln!("mixdown of import {meeting_id} failed: {e}");
     }
     transcribe(s, id, meeting_id, DECODE_SHARE).await
@@ -389,10 +443,7 @@ async fn run_recover(s: &Shared, id: u64, meeting_id: i64) -> Result<(), String>
     s.db.finish_meeting(meeting_id, duration_ms, "processing")
         .await
         .map_err(err)?;
-    let mix = PathBuf::from(&meeting.dir).join(MIX_FILE);
-    if let Ok(Err(e)) =
-        tauri::async_runtime::spawn_blocking(move || audio::mixdown(&files, &mix)).await
-    {
+    if let Err(e) = playback(s, meeting_id, Path::new(&meeting.dir), files, |_| {}).await {
         eprintln!("mixdown of recovered meeting {meeting_id} failed: {e}");
     }
     eprintln!("recovered meeting {meeting_id}: {longest:.1} s kept");
@@ -408,7 +459,83 @@ async fn run_recover(s: &Shared, id: u64, meeting_id: i64) -> Result<(), String>
 }
 
 async fn run_transcribe(s: &Shared, id: u64, meeting_id: i64) -> Result<(), String> {
+    // The app quit while making the playback file after Stop (VRT-45): make it first.
+    let made = ensure_playback(s, id, meeting_id).await?;
+    let status = s.engine.status();
+    if made && !(status.engine_installed && status.model_installed) {
+        // A recording made without the engine: the playback file was all it needed.
+        let ms = meeting_duration(s, meeting_id).await;
+        return s
+            .db
+            .finish_meeting(meeting_id, ms, "done")
+            .await
+            .map_err(|e| e.to_string());
+    }
     transcribe(s, id, meeting_id, 0.0).await
+}
+
+/// Make the meeting's playback file if it has none but its tracks are there, with progress
+/// in the job ("mixing"). Returns whether it made one.
+async fn ensure_playback(s: &Shared, id: u64, meeting_id: i64) -> Result<bool, String> {
+    let Some(meeting) =
+        s.db.get_meeting(meeting_id)
+            .await
+            .map_err(|e| e.to_string())?
+    else {
+        return Ok(false);
+    };
+    let dir = PathBuf::from(&meeting.dir);
+    if dir.join(MIX_FILE).is_file() {
+        return Ok(false);
+    }
+    let files: Vec<PathBuf> =
+        s.db.list_tracks(meeting_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|t| PathBuf::from(t.path))
+            .filter(|p| p.is_file())
+            .collect();
+    if files.is_empty() {
+        return Ok(false);
+    }
+    s.update(id, |j| {
+        j.stage = "mixing";
+        j.progress = 0.0;
+    });
+    playback(s, meeting_id, &dir, files, |f| {
+        s.update(id, |j| j.progress = f)
+    })
+    .await?;
+    Ok(true)
+}
+
+/// [`make_playback`] off the async threads, reporting progress every 200 ms; tells the UI
+/// when the meeting can be played (`meeting:playback`).
+async fn playback(
+    s: &Shared,
+    meeting_id: i64,
+    dir: &Path,
+    files: Vec<PathBuf>,
+    report: impl Fn(f64),
+) -> Result<(), String> {
+    let progress = SharedProgress::new();
+    let (p, dir_owned) = (progress.clone(), dir.to_owned());
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        make_playback(&dir_owned, &files, &mut |f| p.set(f))
+    });
+    tokio::pin!(handle);
+    let result = loop {
+        tokio::select! {
+            r = &mut handle => break r,
+            () = tokio::time::sleep(Duration::from_millis(200)) => report(progress.get()),
+        }
+    };
+    result.map_err(|e| e.to_string())??;
+    if let Some(app) = &s.app {
+        let _ = app.emit("meeting:playback", meeting_id);
+    }
+    Ok(())
 }
 
 /// A fraction shared between a blocking task and the job loop.
@@ -466,6 +593,12 @@ async fn transcribe(s: &Shared, id: u64, meeting_id: i64, base: f64) -> Result<(
         })
         .collect();
     let kinds: HashMap<i64, SourceKind> = refs.iter().map(|(t, _)| (t.track_id, t.kind)).collect();
+    // In a room the mic holds several people (VRT-47).
+    let in_room =
+        s.db.get_meeting(meeting_id)
+            .await
+            .map_err(err)?
+            .is_some_and(|m| m.in_room);
 
     // Progress is estimated from the audio length while the engine works.
     let done = Arc::new(AtomicBool::new(false));
@@ -499,7 +632,7 @@ async fn transcribe(s: &Shared, id: u64, meeting_id: i64, base: f64) -> Result<(
         })
         .await
         .map_err(|e| e.to_string())??;
-        let result = rolling::final_pass(&s.engine, decoded, &s.paths.tmp_dir()).await;
+        let result = rolling::final_pass(&s.engine, decoded, &s.paths.tmp_dir(), in_room).await;
         done.store(true, Ordering::Relaxed);
         result
     };
@@ -656,5 +789,68 @@ mod tests {
             "playback file made"
         );
         assert!(!jobs.busy(id));
+    }
+
+    /// A meeting as Stop leaves it: two finished FLAC tracks, status "processing", no mix yet.
+    fn stopped_meeting(db: &Db, paths: &AppPaths) -> (i64, std::path::PathBuf) {
+        let dir = paths.meetings_root().join("1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let id = tauri::async_runtime::block_on(db.create_meeting(
+            "Standup",
+            1,
+            &dir.display().to_string(),
+        ))
+        .unwrap();
+        for (kind, name, rate) in [
+            ("mic", "mic.flac", 48_000),
+            ("loopback", "system.flac", 16_000),
+        ] {
+            let path = dir.join(name);
+            let mut w = crate::audio::flac::FlacWriter::create(&path, rate, 1).unwrap();
+            w.write(&vec![0.2; rate as usize * 3]).unwrap();
+            w.finish().unwrap();
+            let track = NewTrack {
+                source_kind: kind,
+                source_id: name,
+                device_name: name,
+                path: &path.display().to_string(),
+                seconds: 3.0,
+            };
+            tauri::async_runtime::block_on(db.add_track(id, &track)).unwrap();
+        }
+        tauri::async_runtime::block_on(db.finish_meeting(id, 3000, "processing")).unwrap();
+        (id, dir)
+    }
+
+    #[test]
+    fn after_stop_the_playback_file_and_waveform_are_made_in_the_background() {
+        let (jobs, db, paths) = setup();
+        let (id, dir) = stopped_meeting(&db, &paths);
+        let job = wait(&jobs, jobs.finish_recording(id, "Standup".into(), false));
+        assert_eq!((job.kind, job.stage), ("prepare", "done"));
+        assert!(dir.join(MIX_FILE).is_file() && !dir.join("mix.opus.part").exists());
+        let bars: Vec<f32> =
+            serde_json::from_slice(&std::fs::read(dir.join("waveform.json")).unwrap()).unwrap();
+        assert_eq!(bars.len(), 600, "the waveform comes with the mix");
+        let m = tauri::async_runtime::block_on(db.get_meeting(id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(m.status, "done");
+    }
+
+    #[test]
+    fn a_mixdown_cut_off_by_quitting_is_made_on_the_next_start() {
+        let (jobs, db, paths) = setup();
+        let (id, dir) = stopped_meeting(&db, &paths);
+        std::fs::write(dir.join("mix.opus.part"), b"half").unwrap();
+        // At startup a "processing" meeting gets a transcribe job (lib.rs); without the
+        // engine it only needed its playback file.
+        let job = wait(&jobs, jobs.transcribe(id, "Standup".into()));
+        assert_eq!(job.stage, "done", "{:?}", job.error);
+        assert!(dir.join(MIX_FILE).is_file());
+        let m = tauri::async_runtime::block_on(db.get_meeting(id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(m.status, "done");
     }
 }

@@ -93,7 +93,9 @@ time.sleep(3)
 shoot("live")
 live = s.invoke("current_recording")["meeting_id"]
 s.js("document.querySelector('[data-testid=stop]').click()")
-s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 30)
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 30)  # Stop opens the recording
+s.js("document.querySelector('[data-testid=back]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 10)
 time.sleep(2)
 for _ in range(60):
     if not any(j["meeting_id"] == live and j["stage"] not in ("done", "failed") for j in s.invoke("list_jobs")):

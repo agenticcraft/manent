@@ -49,7 +49,9 @@ meeting = record(s, 3)
 held = inhibitors()
 s.check(len(held) == 1 and "sleep" in held[0] and "block" in held[0], f"inhibitor while recording: {held}")
 s.js("document.querySelector('[data-testid=stop]').click()")
-s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 30)
+s.wait_for("return document.querySelector('[data-testid=meeting-heading]')", 30)  # Stop opens the recording
+s.js("document.querySelector('[data-testid=back]').click()")
+s.wait_for("return document.querySelector('[data-testid=meeting-row]')", 10)
 s.check(wait_until(lambda: not inhibitors()), "released when the recording stops")
 
 # A gap: the meeting shows a marker at that point, between the blocks; also without words.
