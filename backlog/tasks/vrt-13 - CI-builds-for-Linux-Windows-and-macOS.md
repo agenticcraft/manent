@@ -4,7 +4,7 @@ title: CI builds for Linux, Windows and macOS (Bitbucket Pipelines)
 status: To Do
 assignee: []
 created_date: 2026-10-29 12:17
-updated_date: '2026-11-01T09:53:00Z'
+updated_date: '2026-11-04T21:27:00Z'
 labels:
   - ci
 milestone: m-3
@@ -26,4 +26,5 @@ Bitbucket Pipelines (the repo lives on Bitbucket) that lint, test and build the 
 <!-- AC:BEGIN -->
 - [ ] #1 bitbucket-pipelines.yml runs npm run check, cargo fmt/clippy and cargo test on push/PR
 - [ ] #2 Build artifacts produced for Linux, Windows and macOS
+- [ ] #3 Release installers built in CI for all three platforms (Linux RPM via scripts/release-rpm.sh, decision-9)
 <!-- AC:END -->
