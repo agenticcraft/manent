@@ -190,6 +190,16 @@
     }
   ],
   "duration_ms": 3725000,
+  "marks": [
+    {
+      "at_ms": 4200,
+      "label": ""
+    },
+    {
+      "at_ms": 3605000,
+      "label": "Follow up with finance"
+    }
+  ],
   "speakers": [
     "Anna",
     "Rob",

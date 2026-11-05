@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::audio::{self, Gap, Monitor, Recording, SourceInfo, SourceKind, TrackSummary};
 use crate::db::Pass;
@@ -614,6 +614,101 @@ pub async fn stop_recording(
     crate::tray::set_recording(&app, false);
     let _ = app.emit("recording:stopped", meeting_id);
     Ok(RecordingStopped { meeting_id, tracks })
+}
+
+/// A mark was added, changed or deleted (event `meeting:marks`, VRT-52).
+#[derive(Debug, Clone, Serialize)]
+pub struct MarksChanged {
+    pub meeting_id: i64,
+    /// The mark just added (the Live screen shows it at once).
+    pub added: Option<crate::db::Mark>,
+}
+
+/// Mark the current moment of the running recording.
+async fn mark_now(app: &AppHandle) -> Result<crate::db::Mark, String> {
+    let (meeting_id, at_ms) = {
+        let state = app.state::<RecorderState>();
+        let current = state.0.lock().await;
+        let active = current
+            .as_ref()
+            .ok_or("Not recording: start a recording to mark")?;
+        (active.meeting_id, active.recording.position_ms())
+    };
+    let db = app.state::<Db>();
+    let mark = db
+        .add_mark(meeting_id, at_ms as i64, now_ms()?)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "meeting:marks",
+        MarksChanged {
+            meeting_id,
+            added: Some(mark.clone()),
+        },
+    );
+    crate::transcript_md::spawn_write(db.inner().clone(), vec![meeting_id]);
+    Ok(mark)
+}
+
+/// Mark this moment of the recording (the Live screen's Mark button).
+#[tauri::command]
+pub async fn mark_moment(app: AppHandle) -> Result<crate::db::Mark, String> {
+    mark_now(&app).await
+}
+
+/// The mark-moment shortcut (VRT-40): mark, or say why not in the log.
+pub fn mark_from_shortcut(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        match mark_now(&app).await {
+            Ok(m) => eprintln!("marked meeting {} at {} ms", m.meeting_id, m.at_ms),
+            Err(e) => eprintln!("mark: {e}"),
+        }
+    });
+}
+
+#[tauri::command]
+pub async fn list_marks(
+    db: State<'_, Db>,
+    meeting_id: i64,
+) -> Result<Vec<crate::db::Mark>, String> {
+    db.list_marks(meeting_id).await.map_err(|e| e.to_string())
+}
+
+fn marks_changed(app: &AppHandle, db: &Db, meeting_id: i64) {
+    let _ = app.emit(
+        "meeting:marks",
+        MarksChanged {
+            meeting_id,
+            added: None,
+        },
+    );
+    crate::transcript_md::spawn_write(db.clone(), vec![meeting_id]);
+}
+
+/// Give a mark a label (empty removes it).
+#[tauri::command]
+pub async fn set_mark_label(
+    app: AppHandle,
+    db: State<'_, Db>,
+    id: i64,
+    label: String,
+) -> Result<(), String> {
+    if let Some(m) = db
+        .set_mark_label(id, &label)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        marks_changed(&app, db.inner(), m.meeting_id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_mark(app: AppHandle, db: State<'_, Db>, id: i64) -> Result<(), String> {
+    if let Some(meeting_id) = db.delete_mark(id).await.map_err(|e| e.to_string())? {
+        marks_changed(&app, db.inner(), meeting_id);
+    }
+    Ok(())
 }
 
 /// Rename a meeting (also while it is being recorded).

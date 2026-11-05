@@ -1,8 +1,8 @@
-import { Moon } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef } from "react";
+import { Bookmark, Moon, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { SpeakerChip } from "@/components/SpeakerChip";
 import { formatDuration } from "@/lib/format";
-import type { Gap, TranscriptSegment, VoiceView } from "@/lib/ipc";
+import type { Gap, Mark, TranscriptSegment, VoiceView } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
 /** Turns up to this many characters are shown on one line with their speaker. */
@@ -70,6 +70,9 @@ export function TranscriptBlocks({
   currentMs,
   focusMs,
   gaps = [],
+  marks = [],
+  onLabelMark,
+  onDeleteMark,
 }: {
   meetingId: number;
   segments: TranscriptSegment[];
@@ -85,6 +88,11 @@ export function TranscriptBlocks({
   focusMs?: number;
   /** Where the recording lost audio (the computer slept), shown between the blocks. */
   gaps?: Gap[];
+  /** Moments marked while recording (VRT-52), shown between the blocks. */
+  marks?: Mark[];
+  /** With these the marks can be labelled and deleted (the meeting screen). */
+  onLabelMark?: (id: number, label: string) => void;
+  onDeleteMark?: (id: number) => void;
 }) {
   const blocks = useMemo(() => toBlocks(segments), [segments]);
   const root = useRef<HTMLDivElement>(null);
@@ -153,10 +161,20 @@ export function TranscriptBlocks({
         const short = !current && blockText(b).length <= SHORT_TURN_CHARS;
         const prev = i === 0 ? -Infinity : blocks[i - 1].start_ms;
         const before = gaps.filter((g) => g.at_ms > prev && g.at_ms <= b.start_ms);
+        const marked = marks.filter((m) => m.at_ms > prev && m.at_ms <= b.start_ms);
         return (
           <Fragment key={b.key}>
             {before.map((g) => (
               <GapMarker key={`gap-${g.at_ms}`} gap={g} />
+            ))}
+            {marked.map((m) => (
+              <MarkRow
+                key={`mark-${m.id}`}
+                mark={m}
+                onSeek={onSeek}
+                onLabel={onLabelMark}
+                onDelete={onDeleteMark}
+              />
             ))}
             <article
               className={cn(
@@ -244,6 +262,110 @@ export function TranscriptBlocks({
         .map((g) => (
           <GapMarker key={`gap-${g.at_ms}`} gap={g} />
         ))}
+      {marks
+        .filter((m) => blocks.length === 0 || m.at_ms > blocks[blocks.length - 1].start_ms)
+        .map((m) => (
+          <MarkRow
+            key={`mark-${m.id}`}
+            mark={m}
+            onSeek={onSeek}
+            onLabel={onLabelMark}
+            onDelete={onDeleteMark}
+          />
+        ))}
+    </div>
+  );
+}
+
+/**
+ * A marked moment (VRT-52): its time (plays from there on the meeting screen) and an optional
+ * label, edited in place (Enter or leaving the field saves, Esc cancels).
+ */
+function MarkRow({
+  mark,
+  onSeek,
+  onLabel,
+  onDelete,
+}: {
+  mark: Mark;
+  onSeek?: (ms: number) => void;
+  onLabel?: (id: number, label: string) => void;
+  onDelete?: (id: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const cancelled = useRef(false);
+  const time = formatDuration(mark.at_ms);
+  return (
+    <div
+      className="group flex items-center gap-2 px-3 py-1 text-sm"
+      role="note"
+      data-testid="mark"
+      data-at-ms={mark.at_ms}
+    >
+      <Bookmark className="size-3.5 shrink-0 fill-brand text-brand" aria-label="Marked" />
+      {onSeek ? (
+        <button
+          type="button"
+          onClick={() => onSeek(mark.at_ms)}
+          className="text-xs font-medium text-brand tabular-nums hover:underline"
+          title="Play from here"
+          data-testid="mark-time"
+        >
+          {time}
+        </button>
+      ) : (
+        <span className="text-xs font-medium text-brand tabular-nums">{time}</span>
+      )}
+      {editing ? (
+        <input
+          autoFocus
+          defaultValue={mark.label}
+          placeholder="What happened here?"
+          aria-label="Mark label"
+          className="min-w-0 flex-1 rounded bg-muted px-1.5 py-0.5 text-sm ring-2 ring-ring/50 outline-none"
+          onBlur={(e) => {
+            setEditing(false);
+            if (cancelled.current) cancelled.current = false;
+            else if (e.currentTarget.value.trim() !== mark.label)
+              onLabel?.(mark.id, e.currentTarget.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              cancelled.current = true;
+              e.currentTarget.blur();
+            }
+          }}
+          data-testid="mark-label-input"
+        />
+      ) : onLabel ? (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className={cn(
+            "min-w-0 truncate text-left",
+            mark.label ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+          data-testid="mark-label"
+        >
+          {mark.label || "Add a label"}
+        </button>
+      ) : (
+        <span className="min-w-0 truncate" data-testid="mark-label">
+          {mark.label || "Marked"}
+        </span>
+      )}
+      {onDelete && !editing && (
+        <button
+          type="button"
+          onClick={() => onDelete(mark.id)}
+          className="ml-auto rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100"
+          aria-label="Delete mark"
+          data-testid="mark-delete"
+        >
+          <X className="size-3.5" />
+        </button>
+      )}
     </div>
   );
 }

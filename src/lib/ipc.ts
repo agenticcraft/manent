@@ -65,6 +65,34 @@ export interface Gap {
   missing_ms: number;
 }
 
+/** A moment marked while recording (VRT-52; Rust: db::Mark). */
+export interface Mark {
+  id: number;
+  meeting_id: number;
+  /** Position in the recording. */
+  at_ms: number;
+  /** Empty when it has none. */
+  label: string;
+}
+
+/** A global shortcut as the desktop bound it (VRT-40; Rust: shortcuts::ShortcutView). */
+export interface ShortcutView {
+  id: "toggle-recording" | "mark-moment";
+  description: string;
+  /** "Ctrl+Alt+R"; null when the user gave it no keys. */
+  trigger: string | null;
+}
+
+/** Rust: shortcuts::ShortcutStatus. */
+export interface ShortcutStatus {
+  /** This desktop offers global shortcuts. */
+  supported: boolean;
+  enabled: boolean;
+  shortcuts: ShortcutView[];
+  /** Why they could not be turned on. */
+  error: string | null;
+}
+
 export interface TranscriptSegment {
   meeting_id: number;
   track_id: number;
@@ -305,6 +333,13 @@ export interface Commands {
   get_me_name: { args: NoArgs; result: string };
   meeting_voices: { args: { meetingId: number }; result: VoiceView[] };
   meeting_gaps: { args: { meetingId: number }; result: Gap[] };
+  mark_moment: { args: NoArgs; result: Mark };
+  list_marks: { args: { meetingId: number }; result: Mark[] };
+  set_mark_label: { args: { id: number; label: string }; result: null };
+  delete_mark: { args: { id: number }; result: null };
+  get_shortcuts: { args: NoArgs; result: ShortcutStatus };
+  set_shortcuts_enabled: { args: { enabled: boolean }; result: ShortcutStatus };
+  open_shortcut_settings: { args: NoArgs; result: null };
   name_speaker: { args: { meetingId: number; label: string; name: string }; result: null };
   confirm_suggestion: { args: { meetingId: number; label: string }; result: null };
   merge_labels: { args: { meetingId: number; from: string; into: string }; result: null };
@@ -356,6 +391,10 @@ export interface Events {
   "jobs:changed": JobView[];
   /** A meeting's playback file is ready (its id). */
   "meeting:playback": number;
+  /** A meeting's marks changed; `added` is a mark just made (VRT-52). */
+  "meeting:marks": { meeting_id: number; added: Mark | null };
+  /** The global shortcuts were turned on or off, or their keys changed (VRT-40). */
+  "shortcuts:changed": ShortcutStatus;
   /** A recording started or stopped, from the window or the tray (VRT-22). */
   "recording:started": RecordingStarted;
   /** The meeting id of the recording that stopped. */

@@ -17,6 +17,7 @@ export function AudioPlayer({
   src,
   fallbackDurationMs,
   waveform,
+  marks = [],
   onTime,
   ref,
 }: {
@@ -24,6 +25,8 @@ export function AudioPlayer({
   fallbackDurationMs: number;
   /** Loudness bars (0..1) over the whole meeting. */
   waveform?: number[];
+  /** Marked moments (ms, VRT-52), shown as ticks above the waveform. */
+  marks?: number[];
   /** The playback position in ms, about 4 times a second and on every seek. */
   onTime?: (ms: number) => void;
   ref?: Ref<PlayerHandle>;
@@ -186,6 +189,16 @@ export function AudioPlayer({
             <div className="h-full rounded-full bg-brand" style={{ width: `${fraction * 100}%` }} />
           </div>
         )}
+        {duration > 0 &&
+          marks.map((ms) => (
+            <span
+              key={ms}
+              className="pointer-events-none absolute top-0 h-2 w-0.5 -translate-x-1/2 rounded-full bg-brand"
+              style={{ left: `${Math.min(100, (ms / 1000 / duration) * 100)}%` }}
+              aria-hidden
+              data-testid="player-mark"
+            />
+          ))}
         <input
           type="range"
           min={0}

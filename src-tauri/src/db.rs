@@ -54,6 +54,17 @@ pub struct Meeting {
     pub in_room: bool,
 }
 
+/// A moment the user marked while recording (VRT-52).
+#[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
+pub struct Mark {
+    pub id: i64,
+    pub meeting_id: i64,
+    /// Position in the recording (track time).
+    pub at_ms: i64,
+    /// Empty when the user gave it none.
+    pub label: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, FromRow)]
 pub struct Track {
     pub id: i64,
@@ -494,6 +505,48 @@ impl Db {
     }
 
     /// A meeting's gaps as (at_ms, missing_ms), in order.
+    pub async fn add_mark(&self, meeting_id: i64, at_ms: i64, created_at: i64) -> Result<Mark> {
+        Ok(sqlx::query_as(
+            "INSERT INTO marks (meeting_id, at_ms, created_at) VALUES (?, ?, ?) \
+             RETURNING id, meeting_id, at_ms, label",
+        )
+        .bind(meeting_id)
+        .bind(at_ms)
+        .bind(created_at)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_marks(&self, meeting_id: i64) -> Result<Vec<Mark>> {
+        Ok(sqlx::query_as(
+            "SELECT id, meeting_id, at_ms, label FROM marks WHERE meeting_id = ? ORDER BY at_ms, id",
+        )
+        .bind(meeting_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Change a mark's label; returns the mark, None if it is gone.
+    pub async fn set_mark_label(&self, id: i64, label: &str) -> Result<Option<Mark>> {
+        Ok(sqlx::query_as(
+            "UPDATE marks SET label = ? WHERE id = ? RETURNING id, meeting_id, at_ms, label",
+        )
+        .bind(label.trim())
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Delete a mark; returns its meeting, None if it was gone.
+    pub async fn delete_mark(&self, id: i64) -> Result<Option<i64>> {
+        Ok(
+            sqlx::query_scalar("DELETE FROM marks WHERE id = ? RETURNING meeting_id")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
     pub async fn list_gaps(&self, meeting_id: i64) -> Result<Vec<(i64, i64)>> {
         Ok(sqlx::query_as(
             "SELECT at_ms, missing_ms FROM meeting_gaps WHERE meeting_id = ? ORDER BY at_ms",
@@ -1056,6 +1109,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn marks_are_listed_in_time_order_relabelled_deleted_and_go_with_the_meeting() {
+        let db = db().await;
+        let m = db.create_meeting("Review", 1_000, "/m/r").await.unwrap();
+        let late = db.add_mark(m, 90_000, 5).await.unwrap();
+        let early = db.add_mark(m, 12_500, 6).await.unwrap();
+        assert_eq!((early.at_ms, early.label.as_str()), (12_500, ""));
+        let times: Vec<i64> = db
+            .list_marks(m)
+            .await
+            .unwrap()
+            .iter()
+            .map(|k| k.at_ms)
+            .collect();
+        assert_eq!(times, [12_500, 90_000]);
+        let named = db
+            .set_mark_label(late.id, "  Decision  ")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(named.label, "Decision");
+        assert_eq!(db.delete_mark(early.id).await.unwrap(), Some(m));
+        assert_eq!(db.delete_mark(early.id).await.unwrap(), None);
+        assert_eq!(db.list_marks(m).await.unwrap(), vec![named]);
+        db.delete_meeting(m).await.unwrap();
+        assert!(db.list_marks(m).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn schema_has_the_doc_2_tables() {
         let db = db().await;
         let tables: Vec<(String,)> =
@@ -1072,6 +1153,7 @@ mod tests {
             "voice_samples",
             "meeting_voices",
             "meeting_gaps",
+            "marks",
             "settings",
             "segments_fts",
         ] {
@@ -1465,6 +1547,6 @@ mod tests {
             .fetch_one(&db.pool)
             .await
             .unwrap();
-        assert_eq!(migrations.0, 6, "each migration applied once");
+        assert_eq!(migrations.0, 7, "each migration applied once");
     }
 }

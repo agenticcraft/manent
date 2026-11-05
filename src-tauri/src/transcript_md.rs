@@ -13,6 +13,7 @@
 //! pass: "final"
 //! speakers: ["Anna", "Rob", "Speaker 3"]
 //! gaps: [{"at_ms": 120000, "missing_ms": 420000}]
+//! marks: [{"at_ms": 95000, "label": "Decision"}]
 //! ---
 //!
 //! # Kwartaaloverleg
@@ -22,6 +23,8 @@
 //! Goedemorgen allemaal.
 //!
 //! > No audio for 7 min at 2:00: the computer was asleep
+//!
+//! > Marked at 1:35: Decision
 //! ```
 //!
 //! Every header value is written as JSON, which is also valid YAML, so the header needs no
@@ -54,6 +57,8 @@ pub struct Header {
     pub speakers: Vec<String>,
     /// (at_ms, missing_ms): audio lost while the computer slept (VRT-36).
     pub gaps: Vec<(i64, i64)>,
+    /// Moments the user marked (VRT-52); optional when reading (files from before).
+    pub marks: Vec<export::Marker>,
 }
 
 // The reader is for the companion app and for importing transcripts later (decision-5);
@@ -85,8 +90,13 @@ pub fn render(header: &Header, blocks: &[Block]) -> String {
         .iter()
         .map(|(at, missing)| json!({"at_ms": at, "missing_ms": missing}))
         .collect();
+    let marks: Vec<Value> = header
+        .marks
+        .iter()
+        .map(|m| json!({"at_ms": m.at_ms, "label": m.label}))
+        .collect();
     let mut out = format!(
-        "---\nmanent: {SCHEMA}\nid: {}\ntitle: {}\nstarted_at: {}\nduration_ms: {}\naudio: {}\npass: {}\nspeakers: {}\ngaps: {}\n---\n\n# {}\n",
+        "---\nmanent: {SCHEMA}\nid: {}\ntitle: {}\nstarted_at: {}\nduration_ms: {}\naudio: {}\npass: {}\nspeakers: {}\ngaps: {}\nmarks: {}\n---\n\n# {}\n",
         header.id,
         s(&header.title),
         s(&header.started_at),
@@ -95,12 +105,17 @@ pub fn render(header: &Header, blocks: &[Block]) -> String {
         s(&header.pass),
         list(&header.speakers),
         Value::from(gaps),
+        Value::from(marks),
         heading(&header.title),
     );
     let mut gaps = header.gaps.iter().peekable();
+    let mut marks = header.marks.iter().peekable();
     for b in blocks {
         while let Some((at, missing)) = gaps.next_if(|(at, _)| *at <= i64::from(b.start_ms)) {
             out.push_str(&gap_line(*at, *missing));
+        }
+        while let Some(m) = marks.next_if(|m| m.at_ms <= b.start_ms) {
+            out.push_str(&format!("\n> {}\n", export::mark_text(m)));
         }
         out.push_str(&format!(
             "\n**{}** · {}\n\n{}\n",
@@ -111,6 +126,9 @@ pub fn render(header: &Header, blocks: &[Block]) -> String {
     }
     for (at, missing) in gaps {
         out.push_str(&gap_line(*at, *missing));
+    }
+    for m in marks {
+        out.push_str(&format!("\n> {}\n", export::mark_text(m)));
     }
     out
 }
@@ -202,6 +220,21 @@ pub fn parse(text: &str) -> Result<Doc, String> {
             _ => Err("bad gap".to_string()),
         })
         .collect::<Result<_, _>>()?;
+    let marks = match fields.get("marks") {
+        None => Vec::new(),
+        Some(v) => v
+            .as_array()
+            .ok_or("marks is not a list")?
+            .iter()
+            .map(|m| match (m["at_ms"].as_u64(), m["label"].as_str()) {
+                (Some(a), Some(l)) => Ok(export::Marker {
+                    at_ms: a as u32,
+                    label: l.to_string(),
+                }),
+                _ => Err("bad mark".to_string()),
+            })
+            .collect::<Result<_, _>>()?,
+    };
     let header = Header {
         id: int("id")?,
         title: string("title")?,
@@ -211,6 +244,7 @@ pub fn parse(text: &str) -> Result<Doc, String> {
         pass: string("pass")?,
         speakers: strings("speakers")?,
         gaps,
+        marks,
     };
     let mut blocks: Vec<DocBlock> = Vec::new();
     let mut open = false; // a block header waits for its text
@@ -298,6 +332,16 @@ pub async fn load(
         started_at: meeting.started_at,
         duration_ms: meeting.duration_ms,
         parts: export::parts(&segments, &tracks, &people, &me),
+        marks: db
+            .list_marks(id)
+            .await
+            .map_err(err)?
+            .into_iter()
+            .map(|m| export::Marker {
+                at_ms: m.at_ms.max(0) as u32,
+                label: m.label,
+            })
+            .collect(),
     };
     Ok(Some((meeting, export, passes)))
 }
@@ -334,6 +378,7 @@ pub async fn write(db: &Db, id: i64) -> Result<Option<PathBuf>, String> {
         pass: pass_of(&passes),
         speakers,
         gaps: db.list_gaps(id).await.map_err(|e| e.to_string())?,
+        marks: export.marks.clone(),
     };
     let tmp = dir.join(format!("{FILE}.tmp"));
     std::fs::write(&tmp, render(&header, &blocks))
@@ -442,6 +487,16 @@ mod tests {
             pass: "final".into(),
             speakers: vec!["Anna".into(), "Rob".into(), "Speaker 3".into()],
             gaps: vec![(120_000, 420_000)],
+            marks: vec![
+                export::Marker {
+                    at_ms: 4_500,
+                    label: "Decision: \"go\"".into(),
+                },
+                export::Marker {
+                    at_ms: 3_700_000,
+                    label: String::new(),
+                },
+            ],
         }
     }
 
@@ -464,6 +519,17 @@ mod tests {
         }
         let want = std::fs::read_to_string(&path).expect("snapshot (UPDATE_SNAPSHOTS=1 to create)");
         assert_eq!(text, want);
+    }
+
+    #[test]
+    fn files_from_before_marks_still_read() {
+        let text = render(&header(), &blocks());
+        let old: String = text
+            .lines()
+            .filter(|l| !l.starts_with("marks: "))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert!(parse(&old).unwrap().header.marks.is_empty());
     }
 
     #[test]

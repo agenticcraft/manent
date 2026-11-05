@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Manent
+Comment=Local meeting recorder and transcriber
+Exec=manent
+Icon=manent
+Categories=Office;AudioVideo;
+StartupWMClass=manent
+Terminal=false

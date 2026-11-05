@@ -47,9 +47,11 @@
       "rpm": {
         "files": {
           "/usr/bin/manent-engine": "target/release/manent-engine",
-          "/usr/share/licenses/manent/LICENSE": "../LICENSE"
+          "/usr/share/licenses/manent/LICENSE": "../LICENSE",
+          "/usr/share/applications/ai.agenticcraft.manent.desktop": "linux/ai.agenticcraft.manent.desktop"
         },
-        "release": "1"
+        "release": "1",
+        "desktopTemplate": "linux/hidden.desktop.hbs"
       }
     }
   }

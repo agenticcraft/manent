@@ -8,6 +8,7 @@ audio: ["mix.opus","mic.flac","system.flac"]
 pass: "final"
 speakers: ["Anna","Rob","Speaker 3"]
 gaps: [{"at_ms":120000,"missing_ms":420000}]
+marks: [{"at_ms":4500,"label":"Decision: \"go\""},{"at_ms":3700000,"label":""}]
 ---
 
 # Kwartaaloverleg "Q4": budget
@@ -22,6 +23,8 @@ Yes, let's go — **now**.
 
 > No audio for 7 min at 2:00: the computer was asleep
 
+> Marked at 0:04: Decision: "go"
+
 **Speaker 3** · 2:05
 
 Ja, en dat is precies waarom.
@@ -29,3 +32,5 @@ Ja, en dat is precies waarom.
 **Anna** · 1:00:00
 
 Eén vraag nog: # niet een kop.
+
+> Marked at 1:01:40

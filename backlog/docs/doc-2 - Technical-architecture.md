@@ -3,7 +3,7 @@ id: doc-2
 title: Technical architecture
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-11-04T12:37:00Z'
+updated_date: '2026-11-04T21:43:00Z'
 ---
 ## 1. Technical foundation
 
@@ -93,6 +93,7 @@ Validated in VRT-30 (LibriSpeech), VRT-31 (AMI, across sessions) and VRT-32 (Dut
   - `settings(key, value JSON)`: `recording.sources` (Settings > Sources), `speaker.me_name`, `transcription.rolling_interval_s` (30/45/60/90, default 45), `storage.keep` (`all` or `mix`), `storage.meetings_dir` (null = `<app data>/meetings`) (VRT-27).
 - Deleting a meeting cascades to its tracks and segments; deleting a person deletes their voice samples (segments stay, unnamed).
 - **Search:** `segments_fts` (FTS5, `unicode61 remove_diacritics 2`, kept in sync by triggers). Each word is prefix-matched and all words must match; diacritics and case are ignored, so "ideeen" finds "ideeën". Matches come back with a snippet whose matched words are wrapped in U+0001/U+0002 (transcripts can contain brackets); the Library shows them under "In transcripts" and opens the meeting at the match (VRT-20).
+- **Marks (VRT-52):** table `marks` (meeting, `at_ms` in track time from `Recording::position_ms`, optional label). Made with the Live screen's Mark button or the mark-moment shortcut; shown between the transcript blocks and as ticks on the player, labelled or deleted on the meeting page; in the Markdown, text and JSON exports and in `transcript.md` (header `marks`, body `> Marked at m:ss: label`; optional when reading older files).
 - **Export (VRT-21, `export.rs`):** Markdown, plain text, SRT (cues of at most 7 s, split between words) and JSON (blocks with their words and times) from the stored segments, speakers named as in the app; written where the save dialog says. Snapshot tests in `src-tauri/tests/snapshots` (`UPDATE_SNAPSHOTS=1` to accept a change).
 - **Waveform:** `meeting_waveform` computes 600 loudness bars (RMS per bin, loudest track, scaled to the 98th percentile) from the FLAC tracks and caches them as `waveform.json` in the meeting folder once the meeting is done.
 - The engine lives in `<app data>/engine/` (libparakeet, libgomp, `engine.json` naming the image manifest and the sha256 of each kept file, so Settings > Check model finds damage) and the model in `<app data>/models/` (the bundle and its NOTICE). Interrupted downloads stay as `*.part` and resume (VRT-14).
@@ -139,6 +140,7 @@ veritas/                     # the repository keeps its name (decision-8)
       sync/                  # Nextcloud sync: dav.rs (WebDAV client), mod.rs (service) (VRT-39)
       transcript_md.rs       # transcript.md next to the audio (VRT-37)
       power/, tray.rs        # keeping the computer awake (VRT-36), tray icon (VRT-22)
+      shortcuts/             # global shortcuts: XDG portal on Linux (VRT-40, decision-10)
     engine-helper/           # manent-engine: libparakeet FFI, JSON lines on stdin/stdout
     tests/fixtures/          # FLEURS speech and format fixtures (see its README)
   src/                       # React UI

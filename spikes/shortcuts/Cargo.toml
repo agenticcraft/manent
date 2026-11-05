@@ -1,0 +1,12 @@
+[package]
+name = "shortcuts-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+ashpd = { version = "0.13", features = ["global_shortcuts"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+futures-util = "0.3"
+
+[workspace]

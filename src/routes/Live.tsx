@@ -1,10 +1,10 @@
-import { Headset, Pause, Play, Square, Users } from "lucide-react";
+import { Bookmark, Headset, Pause, Play, Square, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { LiveTranscript } from "@/components/LiveTranscript";
 import { SourceChip } from "@/components/SourceChip";
 import { Button } from "@/components/ui/button";
 import { formatDuration, meetingTitle } from "@/lib/format";
-import { call, on, type RecordingStarted } from "@/lib/ipc";
+import { call, on, type Mark, type RecordingStarted } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
 /** Live recording (doc-3 screen 2). Captions from VRT-16; speakers come with VRT-17. */
@@ -39,6 +39,34 @@ export function Live({
   const [busy, setBusy] = useState(false);
   // A call (only the user on the mic) or a room (everyone there on the mic), VRT-47.
   const [inRoom, setInRoom] = useState(session.in_room);
+  // Marked moments (VRT-52), from the Mark button or the global shortcut.
+  const [marks, setMarks] = useState<Mark[]>([]);
+  const [justMarked, setJustMarked] = useState<Mark | null>(null);
+  useEffect(() => {
+    const id = session.meeting_id;
+    const load = () => call("list_marks", { meetingId: id }).then(setMarks, () => {});
+    load();
+    const off = on("meeting:marks", (e) => {
+      if (e.meeting_id !== id) return;
+      const added = e.added;
+      if (added) {
+        setMarks((cur) =>
+          cur.some((m) => m.id === added.id)
+            ? cur
+            : [...cur, added].sort((a, b) => a.at_ms - b.at_ms),
+        );
+        setJustMarked(added);
+      } else load();
+    });
+    return () => {
+      off.then((f) => f());
+    };
+  }, [session.meeting_id]);
+  useEffect(() => {
+    if (!justMarked) return;
+    const t = window.setTimeout(() => setJustMarked(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [justMarked]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,6 +121,11 @@ export function Live({
       setMuted((m) => ({ ...m, [sourceId]: next }));
     });
 
+  const mark = () =>
+    run(async () => {
+      await call("mark_moment");
+    });
+
   const switchRoom = (next: boolean) =>
     run(async () => {
       if (next === inRoom) return;
@@ -140,6 +173,19 @@ export function Live({
         >
           {formatDuration(Math.max(0, elapsed))}
         </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={mark}
+          title="Mark this moment"
+          data-testid="mark-moment"
+          data-marks={marks.length}
+        >
+          <Bookmark className={cn(justMarked && "fill-brand text-brand")} />
+          <span className="tabular-nums">
+            {justMarked ? `Marked ${formatDuration(justMarked.at_ms)}` : "Mark"}
+          </span>
+        </Button>
         <Button variant="outline" size="sm" onClick={togglePause} data-testid="pause-toggle">
           {paused ? <Play /> : <Pause />} {paused ? "Resume" : "Pause"}
         </Button>
@@ -199,7 +245,7 @@ export function Live({
         </p>
       )}
 
-      <LiveTranscript session={session} paused={paused} inRoom={inRoom} />
+      <LiveTranscript session={session} paused={paused} inRoom={inRoom} marks={marks} />
     </div>
   );
 }

@@ -10,6 +10,8 @@ Goedemorgen allemaal. Shall we start?
 
 Yes, let's go.
 
+> Marked at 0:04
+
 **Speaker 3** · 0:09
 
 Ja, en dat is precies waarom we het budget voor volgend jaar opnieuw moeten bekijken.
@@ -17,3 +19,5 @@ Ja, en dat is precies waarom we het budget voor volgend jaar opnieuw moeten beki
 **Anna** · 1:00:00
 
 Eén vraag nog.
+
+> Marked at 1:00:05: Follow up with finance

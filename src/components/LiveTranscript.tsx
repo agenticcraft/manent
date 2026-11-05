@@ -2,7 +2,7 @@ import { ArrowDown } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TranscriptBlocks } from "@/components/TranscriptBlocks";
 import { sorted, useSpeakers } from "@/lib/transcript";
-import { call, on, type RecordingStarted, type TranscriptSegment } from "@/lib/ipc";
+import { call, on, type Mark, type RecordingStarted, type TranscriptSegment } from "@/lib/ipc";
 
 /** Within this distance from the bottom the view keeps following new text. */
 const FOLLOW_PX = 48;
@@ -16,11 +16,14 @@ export function LiveTranscript({
   session,
   paused,
   inRoom,
+  marks,
 }: {
   session: RecordingStarted;
   paused: boolean;
   /** In a room the mic's captions are anyone there (VRT-47). */
   inRoom: boolean;
+  /** Moments marked in this recording (VRT-52). */
+  marks: Mark[];
 }) {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -81,21 +84,33 @@ export function LiveTranscript({
     setFollowing(true);
   };
 
-  if (!session.captions) {
+  if (!session.captions || segments.length === 0) {
     return (
-      <Placeholder>
-        Recording. Live captions are off: download the transcription engine in Settings.
-      </Placeholder>
-    );
-  }
-  if (segments.length === 0) {
-    return (
-      <Placeholder>
-        {paused
-          ? "Paused. Nothing is recorded until you resume."
-          : "Listening… the first words appear after a few seconds."}
-        {error && <span className="mt-2 block text-destructive">{error}</span>}
-      </Placeholder>
+      <>
+        {/* Marks made before the first words: they show at once, also without captions. */}
+        {marks.length > 0 && (
+          <TranscriptBlocks
+            meetingId={session.meeting_id}
+            segments={[]}
+            voices={voices}
+            meName={meName}
+            onRenameMe={renameMe}
+            marks={marks}
+          />
+        )}
+        <Placeholder>
+          {!session.captions ? (
+            "Recording. Live captions are off: download the transcription engine in Settings."
+          ) : (
+            <>
+              {paused
+                ? "Paused. Nothing is recorded until you resume."
+                : "Listening… the first words appear after a few seconds."}
+              {error && <span className="mt-2 block text-destructive">{error}</span>}
+            </>
+          )}
+        </Placeholder>
+      </>
     );
   }
 
@@ -114,6 +129,7 @@ export function LiveTranscript({
           meName={meName}
           onRenameMe={renameMe}
           inRoom={inRoom}
+          marks={marks}
           highlightLast
         />
       </div>

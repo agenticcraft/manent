@@ -14,7 +14,8 @@
 //! so the meeting can show where audio is missing.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
 
@@ -241,6 +242,8 @@ enum Control {
 /// headers without totals; always call `stop`.
 pub struct Recording {
     control: mpsc::Sender<Control>,
+    /// Audio written so far (track time, ms), for marks (VRT-52).
+    position_ms: Arc<AtomicU64>,
     thread: Option<JoinHandle<Result<Stopped, RecorderError>>>,
 }
 
@@ -263,6 +266,8 @@ impl Recording {
             .map(|n| dir.join(n))
             .collect();
         let (control, rx) = mpsc::channel();
+        let position_ms = Arc::new(AtomicU64::new(0));
+        let position = position_ms.clone();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), RecorderError>>();
 
         let thread = std::thread::Builder::new()
@@ -291,7 +296,7 @@ impl Recording {
                     });
                 }
                 let _ = ready_tx.send(Ok(()));
-                let gaps = run_loop(&mut tracks, &rx, &mut on_level)?;
+                let gaps = run_loop(&mut tracks, &rx, &mut on_level, &position)?;
                 for s in &mut streams {
                     s.stop()?;
                 }
@@ -309,6 +314,7 @@ impl Recording {
         match ready_rx.recv() {
             Ok(Ok(())) => Ok(Self {
                 control,
+                position_ms,
                 thread: Some(thread),
             }),
             Ok(Err(e)) => {
@@ -321,6 +327,11 @@ impl Recording {
 
     pub fn pause(&self) {
         let _ = self.control.send(Control::Pause);
+    }
+
+    /// Where the recording is now (track time, ms; pauses don't count).
+    pub fn position_ms(&self) -> u64 {
+        self.position_ms.load(Ordering::Relaxed)
     }
 
     pub fn resume(&self) {
@@ -356,6 +367,7 @@ fn run_loop(
     tracks: &mut [Track],
     control: &mpsc::Receiver<Control>,
     on_level: &mut impl FnMut(LevelEvent),
+    position_ms: &AtomicU64,
 ) -> Result<Vec<Gap>, RecorderError> {
     let mut paused = false;
     let written = |tracks: &[Track]| tracks.first().map_or(0.0, Track::seconds);
@@ -376,6 +388,7 @@ fn run_loop(
         for t in tracks.iter_mut() {
             on_level(t.tick(paused)?);
         }
+        position_ms.store((written(tracks) * 1000.0) as u64, Ordering::Relaxed);
         if let Some(gap) = detector.tick(SystemTime::now(), written(tracks), paused) {
             eprintln!(
                 "recording: no audio for {} ms at {} ms (the computer slept?)",
@@ -586,8 +599,14 @@ mod tests {
             tx.send(Control::Stop).unwrap();
         });
         let mut events = Vec::new();
-        run_loop(&mut tracks, &rx, &mut |e| events.push(e)).unwrap();
+        let position = AtomicU64::new(0);
+        run_loop(&mut tracks, &rx, &mut |e| events.push(e), &position).unwrap();
         feeder.join().unwrap();
+        let at = position.load(Ordering::Relaxed);
+        assert!(
+            at > 400 && at < 1000,
+            "the position follows the audio written, without the pause: {at} ms"
+        );
         for t in &mut tracks {
             t.tick(false).unwrap();
         }

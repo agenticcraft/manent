@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { ShortcutsSettings } from "@/components/ShortcutsSettings";
 import { SourcesSettings } from "@/components/SourcesSettings";
 import { StorageSettings } from "@/components/StorageSettings";
 import { SyncSettings } from "@/components/SyncSettings";
@@ -16,6 +17,11 @@ const SECTIONS = [
     title: "Transcription",
     text: "The engine and model run locally. Dutch and English are detected automatically.",
     body: <TranscriptionSettings />,
+  },
+  {
+    title: "Shortcuts",
+    text: "Keys that work everywhere, also while Manent is in the background.",
+    body: <ShortcutsSettings />,
   },
   {
     title: "Nextcloud",

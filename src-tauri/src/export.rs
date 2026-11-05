@@ -33,6 +33,34 @@ pub struct Export {
     pub started_at: i64,
     pub duration_ms: i64,
     pub parts: Vec<Part>,
+    /// Moments the user marked (VRT-52), in time order.
+    pub marks: Vec<Marker>,
+}
+
+/// A marked moment in an export.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Marker {
+    pub at_ms: u32,
+    /// Empty when the user gave it none.
+    pub label: String,
+}
+
+/// "Marked: Decision" (or just "Marked"), after the time in a text export.
+fn mark_short(m: &Marker) -> String {
+    if m.label.trim().is_empty() {
+        "Marked".into()
+    } else {
+        format!("Marked: {}", m.label.trim())
+    }
+}
+
+/// "Marked at 12:34: Decision" (or without a label).
+pub fn mark_text(m: &Marker) -> String {
+    if m.label.trim().is_empty() {
+        format!("Marked at {}", clock(m.at_ms))
+    } else {
+        format!("Marked at {}: {}", clock(m.at_ms), m.label.trim())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -188,13 +216,20 @@ pub fn render(e: &Export, format: Format) -> String {
                 e.date_label,
                 clock(e.duration_ms.max(0) as u32)
             );
+            let mut marks = e.marks.iter().peekable();
             for b in &blocks {
+                while let Some(m) = marks.next_if(|m| m.at_ms <= b.start_ms) {
+                    out.push_str(&format!("\n> {}\n", mark_text(m)));
+                }
                 out.push_str(&format!(
                     "\n**{}** · {}\n\n{}\n",
                     b.speaker,
                     clock(b.start_ms),
                     b.text
                 ));
+            }
+            for m in marks {
+                out.push_str(&format!("\n> {}\n", mark_text(m)));
             }
             out
         }
@@ -205,13 +240,20 @@ pub fn render(e: &Export, format: Format) -> String {
                 e.date_label,
                 clock(e.duration_ms.max(0) as u32)
             );
+            let mut marks = e.marks.iter().peekable();
             for b in &blocks {
+                while let Some(m) = marks.next_if(|m| m.at_ms <= b.start_ms) {
+                    out.push_str(&format!("\n[{}] {}\n", clock(m.at_ms), mark_short(m)));
+                }
                 out.push_str(&format!(
                     "\n[{}] {}: {}\n",
                     clock(b.start_ms),
                     b.speaker,
                     b.text
                 ));
+            }
+            for m in marks {
+                out.push_str(&format!("\n[{}] {}\n", clock(m.at_ms), mark_short(m)));
             }
             out
         }
@@ -269,6 +311,7 @@ pub fn render(e: &Export, format: Format) -> String {
                 "started_at": iso_utc(e.started_at),
                 "duration_ms": e.duration_ms,
                 "speakers": speakers,
+                "marks": e.marks,
                 "blocks": blocks,
             });
             serde_json::to_string_pretty(&doc).unwrap_or_default() + "\n"
@@ -371,6 +414,17 @@ mod tests {
                         w("nog.", 3_601_000, 3_601_500),
                     ],
                 ),
+            ],
+            // One while Rob speaks (shown before the next block), one at the end with a label.
+            marks: vec![
+                Marker {
+                    at_ms: 4_200,
+                    label: String::new(),
+                },
+                Marker {
+                    at_ms: 3_605_000,
+                    label: "Follow up with finance".into(),
+                },
             ],
         }
     }

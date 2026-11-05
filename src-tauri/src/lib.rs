@@ -18,6 +18,7 @@ mod passes;
 mod paths;
 mod power;
 mod rolling;
+mod shortcuts;
 mod speakers;
 mod sync;
 #[cfg(test)]
@@ -89,6 +90,8 @@ pub fn run() {
                 jobs.clone(),
                 paths.clone(),
             ));
+            // Global shortcuts (VRT-40), if the user turned them on.
+            shortcuts::start(app.handle(), &db);
             app.manage(db);
             // Tray icon (VRT-22); the app works without one (e.g. a desktop without a tray).
             if let Err(e) = tray::build(app.handle()) {
@@ -115,6 +118,7 @@ pub fn run() {
             }
         })
         .manage(commands::RecorderState::default())
+        .manage(shortcuts::Shortcuts::default())
         .manage(commands::MonitorState::default())
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
@@ -125,6 +129,13 @@ pub fn run() {
             commands::stop_recording,
             commands::current_recording,
             commands::set_recording_in_room,
+            commands::mark_moment,
+            commands::list_marks,
+            commands::set_mark_label,
+            commands::delete_mark,
+            shortcuts::get_shortcuts,
+            shortcuts::set_shortcuts_enabled,
+            shortcuts::open_shortcut_settings,
             commands::set_source_muted,
             commands::rename_meeting,
             commands::get_recording_sources,

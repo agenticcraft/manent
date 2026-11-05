@@ -11,6 +11,7 @@ import {
   on,
   type Gap,
   type JobView,
+  type Mark,
   type MeetingDetail,
   type TranscriptSegment,
 } from "@/lib/ipc";
@@ -43,6 +44,22 @@ export function Meeting({
   useEffect(() => {
     call("meeting_gaps", { meetingId: id }).then(setGaps, () => {});
   }, [id]);
+  // Moments marked while recording (VRT-52).
+  const [marks, setMarks] = useState<Mark[]>([]);
+  useEffect(() => {
+    const load = () => call("list_marks", { meetingId: id }).then(setMarks, () => {});
+    load();
+    const off = on("meeting:marks", (e) => {
+      if (e.meeting_id === id) load();
+    });
+    return () => {
+      off.then((f) => f());
+    };
+  }, [id]);
+  const labelMark = (markId: number, label: string) =>
+    call("set_mark_label", { id: markId, label }).catch((e: unknown) => setError(String(e)));
+  const deleteMark = (markId: number) =>
+    call("delete_mark", { id: markId }).catch((e: unknown) => setError(String(e)));
   // The waveform comes with the playback file (VRT-45): ask once that exists.
   const hasMix = Boolean(meeting?.mix_url);
   useEffect(() => {
@@ -204,7 +221,7 @@ export function Meeting({
               )}
             </div>
           )}
-          {segments.length === 0 && gaps.length > 0 && (
+          {segments.length === 0 && (gaps.length > 0 || marks.length > 0) && (
             // No words, but the recording lost audio: still say where.
             <TranscriptBlocks
               meetingId={id}
@@ -212,7 +229,11 @@ export function Meeting({
               voices={voices}
               meName={meName}
               onRenameMe={renameMe}
+              onSeek={meeting.mix_url ? seek : undefined}
               gaps={gaps}
+              marks={marks}
+              onLabelMark={labelMark}
+              onDeleteMark={deleteMark}
             />
           )}
           {segments.length > 0 ? (
@@ -228,6 +249,9 @@ export function Meeting({
                 currentMs={currentMs}
                 focusMs={focusMs}
                 gaps={gaps}
+                marks={marks}
+                onLabelMark={labelMark}
+                onDeleteMark={deleteMark}
               />
             </section>
           ) : (
@@ -249,6 +273,7 @@ export function Meeting({
                 src={meeting.mix_url}
                 fallbackDurationMs={meeting.duration_ms}
                 waveform={waveform}
+                marks={marks.map((m) => m.at_ms)}
                 onTime={setCurrentMs}
               />
             </div>
