@@ -88,6 +88,15 @@ Good to know:
 - The transcription model runs at about 10x real time on a Ryzen AI 9 HX 370 laptop. Slower CPUs were not measured.
 - A recording takes about 400 MB per hour. You can choose to keep only the playback file, about 13 MB per hour, but then you can no longer re-transcribe it.
 
+## Install on Fedora
+
+```sh
+sudo dnf config-manager addrepo --from-repofile=https://agenticcraft.github.io/manent/rpm/manent.repo
+sudo dnf install manent
+```
+
+dnf asks you to trust the key "AgenticCraft Releases", fingerprint `1F7D 3617 A994 9B2D B005 8809 74C2 7C26 B291 9785`. Updates then come with dnf and GNOME Software.
+
 ## Build from source
 
 You need Node.js, Rust, CMake and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for Linux.
