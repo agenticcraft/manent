@@ -7,6 +7,7 @@ import { followSystemTheme } from "@/lib/theme";
 import { Library } from "@/routes/Library";
 import { Live } from "@/routes/Live";
 import { Meeting } from "@/routes/Meeting";
+import { RecordReady } from "@/routes/RecordReady";
 import { Settings } from "@/routes/Settings";
 import { Speakers } from "@/routes/Speakers";
 
@@ -25,6 +26,10 @@ export default function App() {
     pageRef.current = page;
   }, [page]);
   const [session, setSession] = useState<RecordingStarted | null>(null);
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
   const [openMeeting, setOpenMeeting] = useState<number | null>(null);
   /** Where to open the meeting (a search match), ms. */
   const [focusMs, setFocusMs] = useState<number | undefined>(undefined);
@@ -46,7 +51,8 @@ export default function App() {
         setDropError(null);
         call("import_audio", { paths: e.payload.paths }).then(
           () => {
-            setPage((p) => (p === "live" ? p : "library"));
+            // A running recording stays in view; otherwise to the Library, with the progress.
+            setPage((p) => (p === "live" && sessionRef.current ? p : "library"));
             setOpenMeeting(null);
           },
           (err: unknown) => setDropError(String(err)),
@@ -105,25 +111,6 @@ export default function App() {
     setSession(s);
     setPage("live");
   };
-  // Record in the sidebar (VRT-49): start from any screen, or go back to the running one.
-  const [starting, setStarting] = useState(false);
-  const [recordError, setRecordError] = useState<string | null>(null);
-  const onRecord = async () => {
-    if (session) {
-      setPage("live");
-      return;
-    }
-    setStarting(true);
-    setRecordError(null);
-    try {
-      await startRecording();
-    } catch (e) {
-      setRecordError(String(e));
-    } finally {
-      setStarting(false);
-    }
-  };
-
   let content;
   if (page === "live" && session) {
     content = (
@@ -134,6 +121,15 @@ export default function App() {
           setSession(null);
           setPage("library");
           showMeeting(meetingId);
+        }}
+      />
+    );
+  } else if (page === "live") {
+    // Nothing records: the record page, where the user starts one (VRT-54).
+    content = (
+      <RecordReady
+        onStarted={(s) => {
+          setSession(s);
         }}
       />
     );
@@ -162,24 +158,17 @@ export default function App() {
         items={NAV}
         active={page === "live" ? null : page}
         onSelect={(p) => {
-          setRecordError(null);
           setPage(p);
           setOpenMeeting(null);
         }}
         record={{
           recording: !!session,
-          active: page === "live" && !!session,
-          busy: starting,
-          onSelect: () => void onRecord(),
+          active: page === "live",
+          onSelect: () => setPage("live"),
         }}
       />
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-10 py-8">
         <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-1 flex-col">
-          {recordError && (
-            <p role="alert" className="mb-4 text-sm text-destructive" data-testid="record-error">
-              {recordError}
-            </p>
-          )}
           {dropError && (
             <p role="alert" className="mb-4 text-sm text-destructive" data-testid="drop-error">
               {dropError}

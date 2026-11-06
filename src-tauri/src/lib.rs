@@ -129,6 +129,7 @@ pub fn run() {
             commands::stop_recording,
             commands::current_recording,
             commands::set_recording_in_room,
+            commands::get_in_room,
             commands::mark_moment,
             commands::list_marks,
             commands::set_mark_label,

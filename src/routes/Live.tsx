@@ -1,6 +1,7 @@
-import { Bookmark, Headset, Pause, Play, Square, Users } from "lucide-react";
+import { Bookmark, Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { LiveTranscript } from "@/components/LiveTranscript";
+import { MeetingKindSwitch } from "@/components/MeetingKindSwitch";
 import { SourceChip } from "@/components/SourceChip";
 import { Button } from "@/components/ui/button";
 import { formatDuration, meetingTitle } from "@/lib/format";
@@ -204,39 +205,7 @@ export function Live({
             onToggleMute={() => toggleMute(s.id)}
           />
         ))}
-        <div
-          role="radiogroup"
-          aria-label="Who is on the microphone"
-          className="ml-auto inline-flex items-center rounded-full border p-0.5 text-sm"
-          data-testid="meeting-kind"
-          data-in-room={inRoom}
-        >
-          {(
-            [
-              [false, "Call", Headset, "Only you are on the microphone"],
-              [true, "In the room", Users, "Everyone in the room is on the microphone"],
-            ] as const
-          ).map(([value, label, Icon, hint]) => (
-            <button
-              key={label}
-              type="button"
-              role="radio"
-              aria-checked={inRoom === value}
-              title={hint}
-              onClick={() => switchRoom(value)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors",
-                inRoom === value
-                  ? "bg-muted font-medium text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              data-testid={value ? "kind-room" : "kind-call"}
-            >
-              <Icon className="size-3.5" aria-hidden />
-              {label}
-            </button>
-          ))}
-        </div>
+        <MeetingKindSwitch className="ml-auto" inRoom={inRoom} onChange={switchRoom} />
       </div>
 
       {error && (

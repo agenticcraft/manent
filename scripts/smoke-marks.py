@@ -46,6 +46,8 @@ def themed(s, name):
 s = Session(APP)
 s.wait_for("return document.querySelector('[data-testid=record-nav]')")
 s.js("document.querySelector('[data-testid=record-nav]').click()")
+s.wait_for("return document.querySelector('[data-testid=start-recording]')", 5)
+s.js("document.querySelector('[data-testid=start-recording]').click()")
 s.wait_for("return document.querySelectorAll('[data-testid=source-chip]').length", 10)
 meeting_id = s.invoke("current_recording")["meeting_id"]
 time.sleep(2.2)
@@ -132,6 +134,8 @@ if SPEECH:
     s.wait_for("return document.querySelector('[data-testid=new-recording]')", 10)
     player = subprocess.Popen(["paplay", "--volume=20000", SPEECH])
     s.js("document.querySelector('[data-testid=record-nav]').click()")
+    s.wait_for("return document.querySelector('[data-testid=start-recording]')", 5)
+    s.js("document.querySelector('[data-testid=start-recording]').click()")
     s.wait_for("return document.querySelectorAll('[data-testid=source-chip]').length", 10)
     mid = s.invoke("current_recording")["meeting_id"]
     s.wait_for("return document.querySelector('[data-testid=caption-block]')", 30)

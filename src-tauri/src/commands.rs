@@ -499,9 +499,19 @@ pub async fn current_recording(
 /// Settings key for the last choice between a call and a room (VRT-47).
 pub const IN_ROOM_SETTING: &str = "recording.in_room";
 
-/// Switch the running recording between a call (the mic is the user) and a room (everyone
-/// there is on the mic). The next rolling pass and the final pass follow; the next recording
-/// starts the same way.
+/// The choice between a call and a room the next recording starts with (VRT-54).
+#[tauri::command]
+pub async fn get_in_room(db: State<'_, Db>) -> Result<bool, String> {
+    Ok(db
+        .get_setting::<bool>(IN_ROOM_SETTING)
+        .await
+        .map_err(|e| e.to_string())?
+        .unwrap_or(false))
+}
+
+/// Choose between a call (the mic is the user) and a room (everyone there is on the mic). A
+/// running recording follows from its next rolling pass and in its final pass; the next
+/// recording starts the same way.
 #[tauri::command]
 pub async fn set_recording_in_room(
     state: State<'_, RecorderState>,
@@ -509,11 +519,12 @@ pub async fn set_recording_in_room(
     in_room: bool,
 ) -> Result<(), String> {
     let current = state.0.lock().await;
-    let active = current.as_ref().ok_or("no recording")?;
-    active.in_room.store(in_room, Ordering::SeqCst);
-    db.set_in_room(active.meeting_id, in_room)
-        .await
-        .map_err(|e| e.to_string())?;
+    if let Some(active) = current.as_ref() {
+        active.in_room.store(in_room, Ordering::SeqCst);
+        db.set_in_room(active.meeting_id, in_room)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     db.set_setting(IN_ROOM_SETTING, &in_room)
         .await
         .map_err(|e| e.to_string())

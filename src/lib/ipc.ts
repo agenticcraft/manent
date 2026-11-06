@@ -309,6 +309,7 @@ export interface Commands {
   start_recording: { args: NoArgs; result: RecordingStarted };
   current_recording: { args: NoArgs; result: RecordingStarted | null };
   set_recording_in_room: { args: { inRoom: boolean }; result: null };
+  get_in_room: { args: NoArgs; result: boolean };
   pause_recording: { args: NoArgs; result: null };
   resume_recording: { args: NoArgs; result: null };
   set_source_muted: { args: { sourceId: string; muted: boolean }; result: null };

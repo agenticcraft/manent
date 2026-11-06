@@ -11,8 +11,8 @@ interface SidebarProps<K extends string> {
   items: NavItem<K>[];
   active: K | null;
   onSelect: (key: K) => void;
-  /** Always on top (VRT-49): idle it starts a recording; while recording it returns to it. */
-  record: { recording: boolean; active: boolean; busy: boolean; onSelect: () => void };
+  /** Always on top (VRT-49): goes to the record page, or back to the running recording. */
+  record: { recording: boolean; active: boolean; onSelect: () => void };
 }
 
 /** Thin left sidebar (doc-3): app name, navigation, nothing else. */
@@ -26,13 +26,14 @@ export function Sidebar<K extends string>({ items, active, onSelect, record }: S
       <button
         type="button"
         onClick={record.onSelect}
-        disabled={record.busy}
         aria-current={record.active ? "page" : undefined}
         className={cn(
-          "mb-3 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors disabled:opacity-60",
+          "mb-3 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
           record.recording
             ? cn("text-recording", record.active ? "bg-recording/10" : "hover:bg-recording/10")
-            : "hover:bg-sidebar-accent/60",
+            : record.active
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "hover:bg-sidebar-accent/60",
         )}
         data-testid={record.recording ? "recording-nav" : "record-nav"}
       >

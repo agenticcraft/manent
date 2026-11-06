@@ -85,9 +85,12 @@ for i, y in enumerate([700, 1400, 2100]):
     shoot(f"settings-{i + 2}")
 s.js("document.querySelector('main').scrollTop = 0")
 
-# Live: a short recording, then deleted again.
-nav("Library")
-s.js("document.querySelector('[data-testid=new-recording]').click()")
+# The record page, then a short recording, deleted again.
+s.js("document.querySelector('[data-testid=record-nav]').click()")
+s.wait_for("return document.querySelector('[data-testid=start-recording]')", 5)
+time.sleep(0.5)
+shoot("record")
+s.js("document.querySelector('[data-testid=start-recording]').click()")
 s.wait_for("return document.querySelector('[data-testid=recording-timer]') && true", 10)
 time.sleep(3)
 shoot("live")

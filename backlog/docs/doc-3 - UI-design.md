@@ -3,7 +3,7 @@ id: doc-3
 title: UI design
 type: specification
 created_date: 2026-10-29 12:18
-updated_date: '2026-11-04T21:44:00Z'
+updated_date: '2026-11-06T20:09:00Z'
 ---
 ## UI design: clean and calm
 
@@ -22,7 +22,7 @@ updated_date: '2026-11-04T21:44:00Z'
 1. **Library:** a list of meetings showing title, date, duration and speaker avatars, plus "New recording" and "Import audio" buttons (recordings can also be dropped on the window). Imports and transcriptions in progress are listed above the meetings with their progress. The search box filters titles and finds text in every transcript; matches are grouped per meeting with its date and length, and a match opens the meeting at that moment.
 2. **Live recording:**
    - The top bar shows the editable title, the timer, Mark (confirms "Marked 0:42" for a moment; also the mark-moment shortcut, VRT-52), and Pause and Stop buttons. Under it a source chip for each source with a mini level meter and a mute toggle, and on the right the Call / In the room switch (VRT-47).
-   - Record is always at the top of the sidebar: idle it starts a recording, while recording it is the pulsing "Recording" that returns here (VRT-49).
+   - Record is always at the top of the sidebar and only navigates: while nothing records it opens the record page, while recording it is the pulsing "Recording" that returns here (VRT-49, VRT-54). The record page has the sources with test meters, the Call / In the room switch and Start recording. The tray, the shortcut and the Library's "New recording" start directly.
    - The body is the transcript as speaker blocks: a colored name chip, a timestamp, then the text. The current speaker's block is highlighted, and partial text appears in a lighter grey until it is final.
    - Clicking a speaker chip opens a popover to name the speaker or merge them into another.
 3. **Meeting detail:** under the title, who took part with their share of the talking (`<1%` for a word or two); clicking a name cues their first turn. Turns of up to 60 characters sit on one line with their speaker chip, so a quick exchange doesn't read as a column of headers. The same transcript view with a waveform player that stays at the bottom. Marks sit between the blocks (bookmark, time, label: click the time to play, the label to edit, × on hover to delete) and as small accent ticks above the waveform. Clicking a word (or a block's time) plays from there; the word and block being played are highlighted and the view follows them. It offers "Re-transcribe" (the same model, over the whole recording again) and Export (Markdown, TXT, SRT, JSON; VRT-21).
