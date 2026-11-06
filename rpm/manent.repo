@@ -1,0 +1,7 @@
+[manent]
+name=Manent by AgenticCraft
+baseurl=https://agenticcraft.github.io/manent/rpm/fedora/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://agenticcraft.github.io/manent/rpm/RPM-GPG-KEY-agenticcraft
