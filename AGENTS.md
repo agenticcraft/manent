@@ -31,6 +31,7 @@ Manent is a local-first desktop app that records meetings (the mic and system au
   - Engine only: `smoke-import.py` (imports in several formats, re-transcribe), `smoke-transcript.py` (search, open at a match, click-to-seek, playback highlight) `smoke-export.py` (all export formats) and `smoke-transcript-md.py` (transcript.md backfill, contents, rewrite after changes); these need transcribed meetings. `smoke-storage.py` (update interval, check/remove engine, moving the meetings folder, keeping only the playback file; set `TAURI_DRIVER_LOG` to the driver's log to check the interval).
   - Nextcloud sync: `smoke-sync.py` (engine + a local Nextcloud container with a test user, see `spikes/nextcloud/e2e.py`; start tauri-driver with `MANENT_NO_BROWSER=1`): connect, inbox import with meta.json, transcript upload, all meetings, deletes, disconnect.
   - Rename: `smoke-rename.py` (an install as Veritas left it, in a temp `XDG_DATA_HOME`, is carried over: data folder, database paths, transcript.md, Nextcloud keychain entry).
+  - `readme-screens.py` makes the README's screenshots in `docs/screenshots/` from demo data (engine in the data folder; the mic stays muted).
   - `screens.py` takes a screenshot of every screen in light and dark, at the default and the minimum window size, for design reviews (VRT-42).
   - Extend the scripts when a ticket adds UI, and look at the screenshots (light and dark).
 - Before you mark a task done, `cargo fmt`, `cargo clippy`, the lint, and the tests must all pass, and every acceptance criterion must be checked.
