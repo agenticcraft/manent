@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBundleCommand": "sh scripts/macos-sign-engine.sh"
+  },
+  "bundle": {
+    "targets": ["app"],
+    "macOS": {
+      "entitlements": "macos/Manent.entitlements",
+      "hardenedRuntime": true,
+      "signingIdentity": "-",
+      "files": {
+        "MacOS/manent-engine": "target/release/manent-engine"
+      }
+    }
+  }
+}
