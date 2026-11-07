@@ -113,6 +113,8 @@ export interface PassEvent {
   meeting_id: number;
   from_ms: number;
   to_ms: number;
+  /** The tracks whose segments were replaced; null: all of them. */
+  track_ids: number[] | null;
   segments: TranscriptSegment[];
 }
 

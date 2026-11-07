@@ -53,6 +53,9 @@ pub struct PassTrack {
 pub struct PassResult {
     pub from_ms: u32,
     pub to_ms: u32,
+    /// The tracks this pass covered; a track left out (it stopped delivering) keeps its
+    /// segments in the stretch.
+    pub track_ids: Vec<i64>,
     pub blocks: Vec<(i64, Labelled)>,
     /// The voice of every label in this pass (for naming and matching, VRT-18).
     pub voices: Vec<LabelVoice>,
@@ -305,6 +308,7 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
         write_wav(&wav, &samples)?;
         audio.push((t.track.clone(), wav));
     }
+    let track_ids: Vec<i64> = audio.iter().map(|(t, _)| t.track_id).collect();
     let files: Vec<PathBuf> = audio.iter().map(|(_, w)| w.clone()).collect();
     let result = transcribe_tracks(engine, audio, in_room).await;
     for f in files {
@@ -339,6 +343,7 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
         PassResult {
             from_ms,
             to_ms,
+            track_ids,
             blocks,
             voices,
         },
@@ -605,20 +610,18 @@ mod tests {
             async move {
                 let tmp = crate::test_util::temp_dir();
                 let mut labels = RollingLabels::default();
-                rolling_pass(&tracks, &OneWordEngine, &tmp, 0, false, &mut labels)
+                let (r, _) = rolling_pass(&tracks, &OneWordEngine, &tmp, 0, false, &mut labels)
                     .await
                     .unwrap()
-                    .map(|(r, _)| r.blocks)
-                    .unwrap_or_default()
+                    .expect("a pass");
+                // Only the covered tracks have their captions replaced.
+                assert_eq!(tracks_with(&[r.blocks]), r.track_ids);
+                r.track_ids
             }
         };
-        assert_eq!(tracks_with(&[pass(0.0).await]), [1], "never delivered");
-        assert_eq!(tracks_with(&[pass(5.0).await]), [1], "stopped at 5 s");
-        assert_eq!(
-            tracks_with(&[pass(29.5).await]),
-            [1, 2],
-            "a little behind is still in"
-        );
+        assert_eq!(pass(0.0).await, [1], "never delivered");
+        assert_eq!(pass(5.0).await, [1], "stopped at 5 s");
+        assert_eq!(pass(29.5).await, [1, 2], "a little behind is still in");
     }
 }
 

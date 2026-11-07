@@ -132,6 +132,8 @@ pub struct PassEvent {
     pub meeting_id: i64,
     pub from_ms: u32,
     pub to_ms: u32,
+    /// The tracks whose segments were replaced; `None`: all of them.
+    pub track_ids: Option<Vec<i64>>,
     pub segments: Vec<TranscriptSegment>,
 }
 
@@ -961,8 +963,9 @@ fn start_rolling(
     let (app, err_app, db) = (app.clone(), app.clone(), db.clone());
     let on_pass = move |r: PassResult| {
         let rows: Vec<NewSegment> = r.blocks.iter().map(|(id, b)| new_segment(*id, b)).collect();
-        let saved = tauri::async_runtime::block_on(db.replace_segments(
+        let saved = tauri::async_runtime::block_on(db.replace_track_segments(
             meeting_id,
+            Some(&r.track_ids),
             &[Pass::Caption, Pass::Rolling],
             r.from_ms.into(),
             r.to_ms.into(),
@@ -986,6 +989,7 @@ fn start_rolling(
                 meeting_id,
                 from_ms: r.from_ms,
                 to_ms: r.to_ms,
+                track_ids: Some(r.track_ids),
                 segments,
             },
         );

@@ -10,7 +10,7 @@
       "hardenedRuntime": true,
       "signingIdentity": "-",
       "files": {
-        "MacOS/manent-engine": "target/release/manent-engine"
+        "MacOS/manent-engine": "target/bundle-engine/manent-engine"
       }
     }
   }
