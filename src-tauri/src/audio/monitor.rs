@@ -36,7 +36,8 @@ impl Monitor {
                         let (mut source, reader) = CpalSource::open(info.clone())?;
                         source.start()?;
                         streams.push(source);
-                        inputs.push((info, reader, InputWatch::default()));
+                        let watch = InputWatch::new(info.kind);
+                        inputs.push((info, reader, watch));
                     }
                     Ok(())
                 })();
@@ -95,7 +96,7 @@ fn level_of(
         peak_db: level.peak_db,
         paused: false,
         muted: false,
-        no_input: watch.tick(buf.len(), TICK),
+        no_input: watch.tick(buf, TICK),
     }
 }
 
@@ -115,7 +116,7 @@ mod tests {
         };
         let (mut w, mut r) = sample_ring(1024);
         let mut buf = Vec::new();
-        let mut watch = InputWatch::default();
+        let mut watch = InputWatch::new(SourceKind::Mic);
         let square: Vec<f32> = (0..100)
             .map(|i| if i % 2 == 0 { 0.5 } else { -0.5 })
             .collect();

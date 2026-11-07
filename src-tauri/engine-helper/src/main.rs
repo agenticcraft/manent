@@ -37,6 +37,18 @@ fn arg(args: &[String], name: &str) -> Option<PathBuf> {
     args.get(i + 1).map(PathBuf::from)
 }
 
+/// End the process at once, without C++ static destructors (VRT-12): at exit the Metal backend
+/// asserts that no context is alive (ggml-metal-device.m:618) and aborts, and ours stay alive
+/// on purpose, since requests may still be running. The OS frees everything; every reply was
+/// already flushed by `emit`.
+fn quit(code: i32) -> ! {
+    unsafe extern "C" {
+        fn _exit(status: std::ffi::c_int) -> !;
+    }
+    // SAFETY: _exit takes a plain int and only ends the process.
+    unsafe { _exit(code) }
+}
+
 fn emit(out: &Mutex<std::io::Stdout>, line: &Value) {
     let mut out = out.lock().unwrap_or_else(|e| e.into_inner());
     // If the app is gone, writing fails and the stdin loop ends the process anyway.
@@ -102,14 +114,14 @@ fn main() {
             &out,
             &json!({"event": "failed", "error": "usage: manent-engine --lib <libparakeet> --model <bundle.gguf>"}),
         );
-        std::process::exit(2);
+        quit(2);
     };
     let started = Instant::now();
     let engine = match parakeet::Engine::load(&lib, &model) {
         Ok(e) => Arc::new(e),
         Err(e) => {
             emit(&out, &json!({"event": "failed", "error": e}));
-            std::process::exit(2);
+            quit(2);
         }
     };
     emit(
@@ -148,5 +160,5 @@ fn main() {
         });
     }
     // stdin closed: the app is gone. Don't wait for running requests.
-    std::process::exit(0);
+    quit(0);
 }
