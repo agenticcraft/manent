@@ -114,6 +114,7 @@ impl Track {
         channels: u16,
     ) -> Result<Self, RecorderError> {
         let writer = FlacWriter::create(&file, sample_rate, channels)?;
+        let input = levels::InputWatch::new(info.kind);
         Ok(Self {
             info,
             file,
@@ -123,7 +124,7 @@ impl Track {
             muted: false,
             silence: Vec::new(),
             feed: None,
-            input: levels::InputWatch::default(),
+            input,
         })
     }
 
@@ -166,7 +167,7 @@ impl Track {
             peak_db: level.peak_db,
             paused,
             muted: self.muted,
-            no_input: self.input.tick(self.buf.len(), TICK),
+            no_input: self.input.tick(&self.buf, TICK),
         })
     }
 

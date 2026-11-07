@@ -4,7 +4,7 @@ title: macOS system audio source (Core Audio taps)
 status: In Progress
 assignee: []
 created_date: 2026-10-29 12:17
-updated_date: '2026-11-07T15:03:00Z'
+updated_date: '2026-11-07T15:32:00Z'
 labels:
   - audio
   - macos
@@ -26,7 +26,7 @@ Record system audio on macOS. cpal 0.18 supports CoreAudio loopback on macOS 14.
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Mic and system audio recorded concurrently on macOS 14.6+ (cpal CoreAudio loopback)
-- [ ] #2 Permission prompts handled with a clear UI message when denied
+- [x] #2 Permission prompts handled with a clear UI message when denied
 - [ ] #3 Older macOS (before 14.6): system audio clearly marked as unavailable, mic recording still works
 - [x] #4 The pinned macOS arm64 engine downloads, starts and transcribes
 <!-- AC:END -->
@@ -43,6 +43,10 @@ Record system audio on macOS. cpal 0.18 supports CoreAudio loopback on macOS 14.
 6. (in scope, agreed 2026-11-07) An empty track never breaks transcription: final_pass skips tracks with less than 1 s of audio (error only when no track has audio); rolling_pass leaves out tracks more than 10 s behind the others, so a silent source no longer stops every rolling pass.
 
 7. No-input notice (AC #2): LevelEvent gets no_input (nothing arrived from a source 3 s after it started; digital silence still counts as input, so an idle output is not flagged), from the recorder and the test monitor. The record page, Settings > Sources and the Live chips show a notice; on macOS with a button to System Settings > Privacy & Security (Privacy_AudioCapture / Privacy_Microphone) through a new open_privacy_settings command.
+
+8. A mic that delivers an exactly constant signal (zeros without consent on macOS, a dead digital mic stuck at one value) for 3 s counts as no input; system audio keeps 'no samples' only, since zeros are also an idle output.
+
+9. The engine helper exits without the Metal backend's abort at exit.
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
@@ -59,4 +63,12 @@ Implemented plan steps 6-7. Empty track: final_pass skips tracks under 1 s (MIN_
 Mac test of the no-input notice (2026-11-07): with AudioCapture consent reset, the record page and the Live screen showed 'No system audio is coming in' with Open System Settings (screenshots by the user); meeting 8 with both consents granted recorded and transcribed mic (NL) and system (EN). Every rebuild is ad-hoc signed with a new cdhash, so macOS treats it as a new app: earlier grants (same name in System Settings) no longer apply and capture is silent without a prompt; tccutil reset Microphone/AudioCapture ai.agenticcraft.manent brings the prompts back. A stable signing identity would keep grants across builds (none on this Mac: 'security find-identity' finds 0). Without consent macOS delivers a constant value around -91 dBFS (mic in meetings 4-7, system in meeting 4), not 'no samples' and not zeros; an idle output delivers exact zeros. So the notice misses a mic without consent (meetings 6/7: mic flat, no notice). Meetings 6/7 had nothing to transcribe (helper run by hand: no words, no speakers, no error). The helper aborts at exit: GGML_ASSERT([rsets->data count] == 0) in ggml-metal-device.m:618 during exit() (C++ static destructors of the Metal backend).
 
 Codex review of the branch (codex exec, read-only), both findings confirmed and fixed: (1) a rolling pass that left a stalled track out still replaced that track's captions in its stretch (db replace_segments deletes for all tracks; LiveTranscript filtered the same way), so the PassResult now carries track_ids, Db::replace_track_segments limits the delete to them, and PassEvent.track_ids (null for the final pass) limits the Live screen likewise; db test added, rolling test checks track_ids. (2) bundle.macOS.files and the signing script took target/release/manent-engine for every build, so --debug failed on a clean tree or bundled a stale release helper, and --target builds missed it; the script now picks the helper of this build (TAURI_ENV_DEBUG, TAURI_ENV_TARGET_TRIPLE, newest of target/<triple>/<profile> and target/<profile>) and signs a copy into target/bundle-engine/, where files takes it from. Verified: a --debug bundle holds the debug helper, a release bundle the release helper, both adhoc,runtime with the helper entitlements. cargo fmt/clippy/test (144) and npm run check pass.
+
+Correction to the note above: the tracks without consent hold exact zeros, not a constant around -91 dBFS (that was volumedetect's floor for 16-bit zeros). Measured per 50 ms block: mic without consent (meetings 4, 6, 7) 100% blocks with zero peak-to-peak; mic with consent (3, 8) never, smallest peak-to-peak -76 dB; system without consent (4) zeros, and an idle output (7 after its start) zeros too. So a mic without consent is recognisable (exactly constant), system audio without consent is not (only 'no samples', as in meetings 1 and 2).
+
+Plan 8 and 9 implemented (branch vrt-12-macos-consent). InputWatch::new(kind): a mic whose ticks are exactly constant (zeros without consent, a dead digital mic stuck at a value) for 3 s has no input; system audio still only 'no samples' (zeros are also an idle output). Tests for both kinds. The engine helper now leaves through _exit (quit() in engine-helper/src/main.rs) instead of std::process::exit, so the Metal backend's static destructor no longer aborts: before, ping then EOF exited with 134 (SIGABRT, GGML_ASSERT in ggml-metal-device.m:618), now 0, with no assert; a failed load still exits 2. cargo fmt/clippy/test (145) and npm run check pass; Manent.app rebuilt. Still to check on the Mac: the mic notice with the microphone permission denied, and no crash report for manent-engine after quitting.
+
+Mac test of plan 8 and 9 (Manent.app, macOS 26.6): with the microphone permission reset and denied, the record page showed 'No sound is coming in from the microphone'; Open System Settings opened the Microphone list, and after allowing it the meter moved (confirmed by the user). After quitting, no new manent-engine crash report in ~/Library/Logs/DiagnosticReports; the three earlier ones (15:12, 15:13, 16:20 on 2026-11-07) came from the helper before the fix. Codex review of these changes (read-only): no serious findings. AC #2 status: mic denied is shown; system audio denied is shown when macOS sends no samples, but not when it sends zeros (indistinguishable from an idle output).
+
+AC #2 checked (agreed with the user, 2026-11-07), with a known limit: when macOS answers a system-audio tap without consent with zeros instead of no samples, no notice is shown, because zeros are also an idle output and macOS has no public API for the system-audio consent status. Mic denied and system audio without samples are shown.
 <!-- SECTION:NOTES:END -->
