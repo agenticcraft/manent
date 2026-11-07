@@ -2,6 +2,7 @@ import { Bookmark, Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { LiveTranscript } from "@/components/LiveTranscript";
 import { MeetingKindSwitch } from "@/components/MeetingKindSwitch";
+import { NoInputNotice } from "@/components/NoInputNotice";
 import { SourceChip } from "@/components/SourceChip";
 import { Button } from "@/components/ui/button";
 import { formatDuration, meetingTitle } from "@/lib/format";
@@ -36,6 +37,8 @@ export function Live({
   const [pausedAt, setPausedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [levels, setLevels] = useState<Record<string, number>>({});
+  // Sources that deliver nothing at all (VRT-12: no consent on macOS).
+  const [noInput, setNoInput] = useState<Record<string, boolean>>({});
   const [muted, setMuted] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   // A call (only the user on the mic) or a room (everyone there on the mic), VRT-47.
@@ -76,9 +79,12 @@ export function Live({
   }, []);
 
   useEffect(() => {
-    const unlisten = on("audio:level", (e) =>
-      setLevels((l) => (l[e.source_id] === e.rms_db ? l : { ...l, [e.source_id]: e.rms_db })),
-    );
+    const unlisten = on("audio:level", (e) => {
+      setLevels((l) => (l[e.source_id] === e.rms_db ? l : { ...l, [e.source_id]: e.rms_db }));
+      setNoInput((n) =>
+        !!n[e.source_id] === e.no_input ? n : { ...n, [e.source_id]: e.no_input },
+      );
+    });
     return () => {
       unlisten.then((f) => f());
     };
@@ -207,6 +213,14 @@ export function Live({
         ))}
         <MeetingKindSwitch className="ml-auto" inRoom={inRoom} onChange={switchRoom} />
       </div>
+
+      {session.sources
+        .filter((s) => noInput[s.id])
+        .map((s) => (
+          <div key={s.id} className="pb-4">
+            <NoInputNotice kind={s.kind} then="start a new recording" />
+          </div>
+        ))}
 
       {error && (
         <p role="alert" className="pb-4 text-sm text-destructive">

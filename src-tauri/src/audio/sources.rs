@@ -1,9 +1,9 @@
 //! Audio source descriptions and the mapping from OS devices to Manent sources.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// What a source captures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceKind {
     /// A microphone (input device). The mic track is "Me".

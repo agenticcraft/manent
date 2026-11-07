@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the macOS bundle's Info.plist by Tauri (VRT-12). -->
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Manent records your microphone to transcribe your meetings. The audio stays on this Mac.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Manent records the system audio, such as the other people in a call, to transcribe your meetings. The audio stays on this Mac.</string>
+</dict>
+</plist>

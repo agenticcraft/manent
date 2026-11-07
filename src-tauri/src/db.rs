@@ -591,18 +591,46 @@ impl Db {
         pass: Pass,
         segments: &[NewSegment],
     ) -> Result<()> {
+        self.replace_track_segments(meeting_id, None, replaced, from_ms, to_ms, pass, segments)
+            .await
+    }
+
+    /// [`Self::replace_segments`] for some tracks only (`None`: all of them). A rolling pass
+    /// that left a track out (it stopped delivering, VRT-12) keeps that track's captions.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn replace_track_segments(
+        &self,
+        meeting_id: i64,
+        tracks: Option<&[i64]>,
+        replaced: &[Pass],
+        from_ms: i64,
+        to_ms: i64,
+        pass: Pass,
+        segments: &[NewSegment],
+    ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         for p in replaced {
-            sqlx::query(
-                "DELETE FROM segments
-                 WHERE meeting_id = ? AND pass = ? AND start_ms >= ? AND start_ms < ?",
-            )
-            .bind(meeting_id)
-            .bind(p.as_str())
-            .bind(from_ms)
-            .bind(to_ms)
-            .execute(&mut *tx)
-            .await?;
+            let mut q = sqlx::QueryBuilder::new("DELETE FROM segments WHERE meeting_id = ");
+            q.push_bind(meeting_id)
+                .push(" AND pass = ")
+                .push_bind(p.as_str())
+                .push(" AND start_ms >= ")
+                .push_bind(from_ms)
+                .push(" AND start_ms < ")
+                .push_bind(to_ms);
+            if let Some(tracks) = tracks {
+                q.push(" AND track_id IN (");
+                let mut ids = q.separated(", ");
+                for id in tracks {
+                    ids.push_bind(*id);
+                }
+                // `IN ()` is not valid SQL; no tracks means nothing to replace.
+                if tracks.is_empty() {
+                    ids.push("NULL");
+                }
+                q.push(")");
+            }
+            q.build().execute(&mut *tx).await?;
         }
         insert_segments_tx(&mut tx, meeting_id, pass, segments).await?;
         tx.commit().await?;
@@ -1337,6 +1365,46 @@ mod tests {
         assert_eq!(db.meeting_voices(m).await.unwrap()[0].speaker_id, None);
         db.clear_meeting_voices(m).await.unwrap();
         assert!(db.meeting_voices(m).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_pass_over_some_tracks_keeps_the_captions_of_the_others() {
+        let db = db().await;
+        let m = db.create_meeting("m", 1, "/m").await.unwrap();
+        let track = |kind| NewTrack {
+            source_kind: kind,
+            source_id: kind,
+            device_name: kind,
+            path: "/m/t.flac",
+            seconds: 0.0,
+        };
+        let mic = db.add_track(m, &track("mic")).await.unwrap();
+        let system = db.add_track(m, &track("loopback")).await.unwrap();
+        let on = |t: i64, start_ms: i64, text: &str| NewSegment {
+            track_id: Some(t),
+            ..seg(start_ms, text)
+        };
+        db.insert_segments(
+            m,
+            Pass::Caption,
+            &[on(mic, 0, "mic"), on(system, 1000, "system")],
+        )
+        .await
+        .unwrap();
+        db.replace_track_segments(
+            m,
+            Some(&[mic]),
+            &[Pass::Caption],
+            0,
+            60_000,
+            Pass::Rolling,
+            &[on(mic, 0, "MIC")],
+        )
+        .await
+        .unwrap();
+        let s = db.list_segments(m).await.unwrap();
+        let got: Vec<_> = s.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(got, ["MIC", "system"]);
     }
 
     #[tokio::test]

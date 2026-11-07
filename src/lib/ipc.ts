@@ -11,6 +11,8 @@ export interface AppInfo {
   version: string;
   os: string;
   arch: string;
+  /** The OS asks consent to capture audio; `open_privacy_settings` shows where (macOS). */
+  privacy_settings: boolean;
 }
 
 export type SourceKind = "mic" | "loopback";
@@ -111,6 +113,8 @@ export interface PassEvent {
   meeting_id: number;
   from_ms: number;
   to_ms: number;
+  /** The tracks whose segments were replaced; null: all of them. */
+  track_ids: number[] | null;
   segments: TranscriptSegment[];
 }
 
@@ -194,6 +198,8 @@ export interface LevelEvent {
   paused: boolean;
   /** A muted source records silence; the level still shows the input. */
   muted: boolean;
+  /** Nothing at all has arrived from this source since it started (e.g. no consent on macOS). */
+  no_input: boolean;
 }
 
 export interface RecordingStopped {
@@ -305,6 +311,7 @@ type NoArgs = Record<string, never>;
 /** Command name -> argument and result types. */
 export interface Commands {
   app_info: { args: NoArgs; result: AppInfo };
+  open_privacy_settings: { args: { kind: SourceKind }; result: null };
   list_sources: { args: NoArgs; result: SourceInfo[] };
   start_recording: { args: NoArgs; result: RecordingStarted };
   current_recording: { args: NoArgs; result: RecordingStarted | null };

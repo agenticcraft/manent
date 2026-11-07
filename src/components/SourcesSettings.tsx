@@ -1,6 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LevelMeter } from "@/components/LevelMeter";
+import { NoInputNotice } from "@/components/NoInputNotice";
 import { call, on, type SourceInfo, type SourceSettings } from "@/lib/ipc";
 
 const NO_SYSTEM = "";
@@ -9,6 +10,8 @@ const NO_SYSTEM = "";
 export function SourcesSettings() {
   const [settings, setSettings] = useState<SourceSettings | null>(null);
   const [levels, setLevels] = useState<Record<string, number>>({});
+  // Sources that opened but deliver nothing (VRT-12: no consent on macOS).
+  const [noInput, setNoInput] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -22,9 +25,12 @@ export function SourcesSettings() {
     if (!selectedKey) return;
     const ids = selectedKey.split("|");
     call("start_source_monitor", { sourceIds: ids }).catch((e: unknown) => setError(String(e)));
-    const unlisten = on("audio:monitor-level", (e) =>
-      setLevels((l) => (l[e.source_id] === e.rms_db ? l : { ...l, [e.source_id]: e.rms_db })),
-    );
+    const unlisten = on("audio:monitor-level", (e) => {
+      setLevels((l) => (l[e.source_id] === e.rms_db ? l : { ...l, [e.source_id]: e.rms_db }));
+      setNoInput((n) =>
+        !!n[e.source_id] === e.no_input ? n : { ...n, [e.source_id]: e.no_input },
+      );
+    });
     return () => {
       unlisten.then((f) => f());
       call("stop_source_monitor").catch(() => {});
@@ -67,6 +73,12 @@ export function SourcesSettings() {
         rmsDb={settings.system ? levels[settings.system] : undefined}
         onChange={(id) => save({ ...settings, system: id === NO_SYSTEM ? null : id })}
       />
+      {settings.mic && noInput[settings.mic] && (
+        <NoInputNotice kind="mic" then="come back to this page" />
+      )}
+      {settings.system && noInput[settings.system] && (
+        <NoInputNotice kind="loopback" then="come back to this page" />
+      )}
       <p className="text-xs text-muted-foreground">
         “System default” follows the device chosen in your operating system, also when it changes
         during a meeting.

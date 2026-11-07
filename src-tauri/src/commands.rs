@@ -29,6 +29,8 @@ pub struct AppInfo {
     pub version: String,
     pub os: String,
     pub arch: String,
+    /// The OS asks consent to capture audio and `open_privacy_settings` can show where (VRT-12).
+    pub privacy_settings: bool,
 }
 
 #[tauri::command]
@@ -38,7 +40,16 @@ pub fn app_info() -> AppInfo {
         version: env!("CARGO_PKG_VERSION").into(),
         os: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),
+        privacy_settings: audio::privacy_settings_url(SourceKind::Loopback).is_some(),
     }
+}
+
+/// Open the OS settings where the user allows capturing this kind of source (macOS, VRT-12).
+#[tauri::command]
+pub fn open_privacy_settings(kind: SourceKind) -> Result<(), String> {
+    let url = audio::privacy_settings_url(kind).ok_or("Not available on this system.")?;
+    crate::open_url::open(url);
+    Ok(())
 }
 
 /// Microphone and system-audio (loopback) sources of this machine.
@@ -121,6 +132,8 @@ pub struct PassEvent {
     pub meeting_id: i64,
     pub from_ms: u32,
     pub to_ms: u32,
+    /// The tracks whose segments were replaced; `None`: all of them.
+    pub track_ids: Option<Vec<i64>>,
     pub segments: Vec<TranscriptSegment>,
 }
 
@@ -950,8 +963,9 @@ fn start_rolling(
     let (app, err_app, db) = (app.clone(), app.clone(), db.clone());
     let on_pass = move |r: PassResult| {
         let rows: Vec<NewSegment> = r.blocks.iter().map(|(id, b)| new_segment(*id, b)).collect();
-        let saved = tauri::async_runtime::block_on(db.replace_segments(
+        let saved = tauri::async_runtime::block_on(db.replace_track_segments(
             meeting_id,
+            Some(&r.track_ids),
             &[Pass::Caption, Pass::Rolling],
             r.from_ms.into(),
             r.to_ms.into(),
@@ -975,6 +989,7 @@ fn start_rolling(
                 meeting_id,
                 from_ms: r.from_ms,
                 to_ms: r.to_ms,
+                track_ids: Some(r.track_ids),
                 segments,
             },
         );

@@ -33,3 +33,9 @@ pub use recorder::{Feed, Gap, Recording, Stopped, TrackSummary, track_file_names
 pub use recover::repair_flac;
 pub use sources::{SourceInfo, SourceKind};
 pub use waveform::{waveform, waveform_from_power};
+
+/// The OS settings page where the user allows this kind of capture, if the OS asks consent
+/// (macOS, VRT-12).
+pub fn privacy_settings_url(kind: SourceKind) -> Option<&'static str> {
+    platform::privacy_settings_url(kind)
+}
