@@ -2,6 +2,13 @@
 //! feature is enabled; sinks show up as in+out devices and an input stream on a sink captures
 //! its monitor (validated in VRT-1).
 
+use super::SourceKind;
+
+/// PipeWire asks no consent for capture, so there are no privacy settings to show.
+pub fn privacy_settings_url(_kind: SourceKind) -> Option<&'static str> {
+    None
+}
+
 /// PipeWire exposes alias devices that follow the current default; we list real devices only.
 pub fn is_virtual_device(name: &str) -> bool {
     matches!(

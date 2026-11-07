@@ -29,6 +29,8 @@ pub struct AppInfo {
     pub version: String,
     pub os: String,
     pub arch: String,
+    /// The OS asks consent to capture audio and `open_privacy_settings` can show where (VRT-12).
+    pub privacy_settings: bool,
 }
 
 #[tauri::command]
@@ -38,7 +40,16 @@ pub fn app_info() -> AppInfo {
         version: env!("CARGO_PKG_VERSION").into(),
         os: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),
+        privacy_settings: audio::privacy_settings_url(SourceKind::Loopback).is_some(),
     }
+}
+
+/// Open the OS settings where the user allows capturing this kind of source (macOS, VRT-12).
+#[tauri::command]
+pub fn open_privacy_settings(kind: SourceKind) -> Result<(), String> {
+    let url = audio::privacy_settings_url(kind).ok_or("Not available on this system.")?;
+    crate::open_url::open(url);
+    Ok(())
 }
 
 /// Microphone and system-audio (loopback) sources of this machine.

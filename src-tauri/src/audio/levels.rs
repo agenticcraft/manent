@@ -1,5 +1,7 @@
 //! Audio level metering for the UI (RMS and peak in dBFS).
 
+use std::time::Duration;
+
 use serde::Serialize;
 
 /// Lowest level reported; silence and digital zero map here.
@@ -42,9 +44,50 @@ pub fn measure(samples: &[f32]) -> Level {
     }
 }
 
+/// How long a source may deliver nothing at all before it counts as having no input.
+pub const NO_INPUT_AFTER: Duration = Duration::from_secs(3);
+
+/// Notices a source that opened fine but never delivers a sample (VRT-12): on macOS that is
+/// what system audio does without the user's consent, and a dead device looks the same.
+/// Digital silence is input (an idle output still sends zeros), so only no samples count.
+#[derive(Debug, Default)]
+pub struct InputWatch {
+    waited: Duration,
+    received: bool,
+}
+
+impl InputWatch {
+    /// Account one tick of `elapsed` in which `samples` arrived; true while there is no input.
+    pub fn tick(&mut self, samples: usize, elapsed: Duration) -> bool {
+        self.received |= samples > 0;
+        if !self.received {
+            self.waited += elapsed;
+        }
+        !self.received && self.waited >= NO_INPUT_AFTER
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_input_only_after_a_while_without_any_sample() {
+        let tick = Duration::from_millis(50);
+        let mut w = InputWatch::default();
+        let ticks = (NO_INPUT_AFTER.as_millis() / tick.as_millis()) as usize;
+        assert!((1..ticks).all(|_| !w.tick(0, tick)), "not yet");
+        assert!(w.tick(0, tick), "nothing for {NO_INPUT_AFTER:?}");
+        assert!(!w.tick(480, tick), "input arrived");
+        assert!(!w.tick(0, tick), "a later pause is not 'no input'");
+    }
+
+    #[test]
+    fn digital_silence_is_input() {
+        let mut w = InputWatch::default();
+        assert!(!w.tick(4800, NO_INPUT_AFTER));
+        assert!(!w.tick(0, NO_INPUT_AFTER));
+    }
 
     #[test]
     fn silence_is_the_floor() {

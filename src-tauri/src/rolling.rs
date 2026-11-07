@@ -28,6 +28,11 @@ const MIN_NEW: u64 = 20 * RATE;
 const CONTEXT: u64 = 30 * RATE;
 /// The newest second is left for the next pass (a word may still be running).
 const MARGIN_MS: u32 = 1000;
+/// A track with less audio than this has nothing to transcribe (a source that never delivered,
+/// VRT-12); the engine refuses to diarize no audio, which would fail the other tracks too.
+const MIN_TRACK: usize = SAMPLE_RATE as usize;
+/// A track this far behind the others has stopped delivering; passes go on without it.
+const STALLED: u64 = 10 * RATE;
 
 /// How the rolling passes of a recording run.
 pub struct PassOptions {
@@ -268,6 +273,13 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
         let g = h.lock().unwrap_or_else(|e| e.into_inner());
         (g.start(), g.end())
     };
+    // Tracks deliver a little apart: the pass ends where all of them have audio, but a track
+    // that stopped delivering (or never did) would hold every pass back, so it sits this out.
+    let newest = tracks.iter().map(|t| lock(&t.history).1).max().unwrap_or(0);
+    let tracks: Vec<&PassTrack> = tracks
+        .iter()
+        .filter(|t| lock(&t.history).1 + STALLED >= newest)
+        .collect();
     let end = tracks.iter().map(|t| lock(&t.history).1).min().unwrap_or(0);
     if end < from + MIN_NEW {
         return Ok(None);
@@ -286,6 +298,9 @@ async fn rolling_pass<E: Engine + Clone + Send + Sync + 'static>(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .range(ctx, end);
+        if samples.len() < MIN_TRACK {
+            continue;
+        }
         let wav = tmp.join(format!("rolling-{}.wav", t.track.track_id));
         write_wav(&wav, &samples)?;
         audio.push((t.track.clone(), wav));
@@ -340,10 +355,13 @@ pub async fn final_pass<E: Engine + Clone + Send + Sync + 'static>(
 ) -> Result<(Vec<(i64, Labelled)>, Vec<LabelVoice>), String> {
     std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
     let mut audio = Vec::new();
-    for (track, samples) in &tracks {
+    for (track, samples) in tracks.iter().filter(|(_, s)| s.len() >= MIN_TRACK) {
         let wav = tmp.join(format!("final-{}.wav", track.track_id));
         write_wav(&wav, samples)?;
         audio.push((track.clone(), wav));
+    }
+    if audio.is_empty() {
+        return Err("nothing was recorded".into());
     }
     let files: Vec<PathBuf> = audio.iter().map(|(_, w)| w.clone()).collect();
     let result = transcribe_tracks(engine, audio, in_room).await;
@@ -363,6 +381,7 @@ pub async fn final_pass<E: Engine + Clone + Send + Sync + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::{FileTranscript, Segment, Transcript};
 
     fn w(start_ms: u32, end_ms: u32) -> Word {
         Word {
@@ -480,6 +499,126 @@ mod tests {
         let chain = [w(8000, 8600), w(8500, 9100)];
         let refs: Vec<&Word> = chain.iter().collect();
         assert_eq!(safe_end(&refs, 10_000), 8000);
+    }
+
+    /// Hears one word per file, "me" or "them", and like the real helper refuses no audio.
+    #[derive(Clone)]
+    struct OneWordEngine;
+
+    impl OneWordEngine {
+        fn word(wav: &Path, text: &str) -> Result<Vec<Word>, String> {
+            let reader = hound::WavReader::open(wav).map_err(|e| e.to_string())?;
+            if reader.duration() == 0 {
+                return Err("diarize: no audio".into());
+            }
+            Ok(vec![said(text, 1000, 1500)])
+        }
+    }
+
+    impl Engine for OneWordEngine {
+        async fn transcribe_chunk(&self, _: &[f32]) -> Result<Transcript, String> {
+            unreachable!()
+        }
+        async fn transcribe_file(&self, wav: &Path) -> Result<FileTranscript, String> {
+            let words = Self::word(wav, "them")?;
+            Ok(FileTranscript {
+                segments: vec![Segment {
+                    speaker: Some(0),
+                    start_ms: 1000,
+                    end_ms: 1500,
+                    text: "them".into(),
+                    words,
+                }],
+                diarization: diarized(vec![SpeakerTurn {
+                    speaker: 0,
+                    start_ms: 0,
+                    end_ms: 5000,
+                }]),
+            })
+        }
+        async fn transcribe_words(&self, wav: &Path) -> Result<Transcript, String> {
+            Ok(Transcript {
+                text: "me".into(),
+                words: Self::word(wav, "me")?,
+            })
+        }
+        async fn speaker_profiles(&self, _: &Path) -> Result<Diarization, String> {
+            unreachable!()
+        }
+    }
+
+    fn seconds(s: f32) -> Vec<f32> {
+        vec![0.1; (s * SAMPLE_RATE as f32) as usize]
+    }
+
+    fn tracks_with(lines: &[Vec<(i64, Labelled)>]) -> Vec<i64> {
+        let mut ids: Vec<i64> = lines.iter().flatten().map(|(id, _)| *id).collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    #[tokio::test]
+    async fn the_final_pass_skips_a_track_that_recorded_nothing() {
+        let tmp = crate::test_util::temp_dir();
+        let (blocks, _) = final_pass(
+            &OneWordEngine,
+            vec![
+                (tref(1, SourceKind::Mic), seconds(5.0)),
+                (tref(2, SourceKind::Loopback), Vec::new()),
+            ],
+            &tmp,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(tracks_with(&[blocks]), [1], "the mic is transcribed");
+
+        let none = final_pass(
+            &OneWordEngine,
+            vec![(tref(2, SourceKind::Loopback), Vec::new())],
+            &tmp,
+            false,
+        )
+        .await;
+        assert_eq!(none.unwrap_err(), "nothing was recorded");
+    }
+
+    #[tokio::test]
+    async fn rolling_passes_go_on_without_a_track_that_stopped_delivering() {
+        let history = |s: f32| {
+            let h = SharedHistory::default();
+            h.lock().unwrap().push(&seconds(s));
+            h
+        };
+        let pass = |system: f32| {
+            let tracks = vec![
+                PassTrack {
+                    track: tref(1, SourceKind::Mic),
+                    history: history(30.0),
+                },
+                PassTrack {
+                    track: tref(2, SourceKind::Loopback),
+                    history: history(system),
+                },
+            ];
+            async move {
+                let tmp = crate::test_util::temp_dir();
+                let mut labels = RollingLabels::default();
+                rolling_pass(&tracks, &OneWordEngine, &tmp, 0, false, &mut labels)
+                    .await
+                    .unwrap()
+                    .map(|(r, _)| r.blocks)
+                    .unwrap_or_default()
+            }
+        };
+        assert_eq!(tracks_with(&[pass(0.0).await]), [1], "never delivered");
+        assert_eq!(tracks_with(&[pass(5.0).await]), [1], "stopped at 5 s");
+        assert_eq!(
+            tracks_with(&[pass(29.5).await]),
+            [1, 2],
+            "a little behind is still in"
+        );
     }
 }
 
