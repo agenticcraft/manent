@@ -4,7 +4,7 @@ default-members = [".", "engine-helper"]
 
 [package]
 name = "manent"
-version = "0.1.0"
+version = "0.1.7"
 description = "Local-first meeting recorder and transcriber"
 authors = ["Rob"]
 license = "GPL-3.0-or-later"

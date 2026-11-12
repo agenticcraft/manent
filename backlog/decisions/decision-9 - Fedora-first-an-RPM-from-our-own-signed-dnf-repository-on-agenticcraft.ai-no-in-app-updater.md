@@ -15,9 +15,9 @@ Tauri's updater plugin can update RPMs since 2.10. On Fedora, an app updating it
 ## Decision
 
 - **Package:** an **RPM** built by Tauri's bundler (`bundle.targets = ["rpm"]`). `manent` and `manent-engine` go to `/usr/bin` (the helper as an extra RPM file, since `engine::helper::helper_exe` looks next to the app). Icons go to hicolor, plus `Manent.desktop` with `StartupWMClass=manent`. libparakeet and the model are downloaded at first run, as before (decision-1).
-- **Updates:** from **our own dnf repository**, served as static files from agenticcraft.ai (default `https://agenticcraft.ai/manent/rpm`). Users add `manent.repo` once; dnf and GNOME Software then update Manent like any other package. There is no updater code or dependency in the app.
+- **Updates:** from **our own dnf repository**, served as static files from GitHub Pages at `https://agenticcraft.github.io/manent/rpm` (changed 2026-11-06, VRT-56; first planned on agenticcraft.ai). Users add `manent.repo` once; dnf and GNOME Software then update Manent like any other package. There is no updater code or dependency in the app.
 - **Signing:** an "AgenticCraft Releases" GPG key (RSA 4096, 5 years) signs every RPM (`gpgcheck`) and the repository metadata (`repo_gpgcheck`). The public key is published as `RPM-GPG-KEY-agenticcraft` next to the repository. The private key lives outside the repository.
-- **Script:** `scripts/release-rpm.sh` builds, signs and updates the repository in `~/.local/share/agenticcraft-release/repo`. Uploading that folder is a separate, manual step.
+- **Script:** `scripts/release-rpm.sh` builds, signs and updates the repository in `~/.local/share/agenticcraft-release/repo`; `--publish` pushes it to the `gh-pages` branch. Test releases (`--base-url`) go to `repo-test`.
 - **Later:**
   - other platforms (AppImage, Windows, macOS), each with the format and update path that suits it, in their own tickets;
   - the Tauri updater only where the platform has nothing of its own.

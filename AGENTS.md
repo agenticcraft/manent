@@ -37,7 +37,8 @@ Manent is a local-first desktop app that records meetings (the mic and system au
 - Before you mark a task done, `cargo fmt`, `cargo clippy`, the lint, and the tests must all pass, and every acceptance criterion must be checked.
 
 ## Releases
-- **Fedora (decision-9):** `scripts/release-rpm.sh` builds the RPM (app + engine helper), signs it and updates the dnf repository in `$RELEASE_HOME` (default `~/.local/share/agenticcraft-release`, holding the signing key, never in this repository); upload `repo/` as-is to `https://agenticcraft.ai/manent/rpm`. Test a release first with `--version X.Y.Z --base-url http://127.0.0.1:8472`, serving `repo/` with `python3 -m http.server 8472 --bind 127.0.0.1`, then `dnf upgrade --refresh manent`. Bump the version in `tauri.conf.json`, `Cargo.toml` and `package.json` for a real release.
+- **Fedora (decision-9):** bump the version in `tauri.conf.json`, `Cargo.toml` (app and helper) and `package.json`, then `scripts/release-rpm.sh --publish` builds the RPM (app + engine helper), signs it and pushes the dnf repository in `$RELEASE_HOME/repo` to the `gh-pages` branch, served at `https://agenticcraft.github.io/manent/rpm`. `$RELEASE_HOME` (default `~/.local/share/agenticcraft-release`) holds the signing key, never in this repository; back it up.
+- **Test a release first:** `--version X.Y.Z --base-url http://127.0.0.1:8472` goes to `$RELEASE_HOME/repo-test`; serve that with `python3 -m http.server 8472 --bind 127.0.0.1`.
 - macOS and Windows installers: VRT-50, VRT-51; CI: VRT-13.
 
 ## Git
