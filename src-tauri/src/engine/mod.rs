@@ -312,7 +312,9 @@ impl EngineManager {
     }
 
     /// Stop the helper on purpose (no restart); the next request starts it again.
-    fn stop_helper(&self) {
+    /// Stop the helper on purpose: requests waiting for it fail with "engine stopped", and
+    /// the next request starts it again.
+    pub(crate) fn stop_helper(&self) {
         let helper = {
             let mut st = lock(&self.shared.state);
             st.helper_state = HelperState::Stopped;

@@ -587,8 +587,10 @@ pub async fn stop_recording(
         .map_err(|e| e.to_string())?;
     // Live transcription winds down: the caption workers finish their last chunk, then the
     // rolling passes stop, so nothing writes captions after the final pass replaced them.
+    let engine = app.state::<EngineManager>().inner().clone();
     let pass_tracks: Vec<TrackRef> = tauri::async_runtime::spawn_blocking(move || {
         let list = std::mem::take(&mut *lock(&workers));
+        wind_down(rolling.as_ref(), &list, STOP_WAIT, || engine.stop_helper());
         if let Some(r) = rolling {
             r.stop();
         }
@@ -720,6 +722,36 @@ pub async fn delete_mark(app: AppHandle, db: State<'_, Db>, id: i64) -> Result<(
         marks_changed(&app, db.inner(), meeting_id);
     }
     Ok(())
+}
+
+/// How long Stop waits for the last caption chunks and rolling pass before it stops the engine.
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Let the live transcription finish what it is doing. When the engine doesn't answer in
+/// time (it hung, VRT-57), stop it: the waiting requests then fail and the threads end, so
+/// Stop never waits for ever. The final pass starts the engine again.
+fn wind_down<T>(
+    rolling: Option<&Rolling>,
+    workers: &[(T, std::thread::JoinHandle<()>)],
+    wait: std::time::Duration,
+    stop_engine: impl FnOnce(),
+) {
+    if let Some(r) = rolling {
+        r.signal_stop();
+    }
+    let done =
+        || rolling.is_none_or(Rolling::is_finished) && workers.iter().all(|(_, w)| w.is_finished());
+    let until = std::time::Instant::now() + wait;
+    while !done() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    if !done() {
+        eprintln!(
+            "stop: the engine didn't answer within {} s; stopping it",
+            wait.as_secs()
+        );
+        stop_engine();
+    }
 }
 
 /// Rename a meeting (also while it is being recorded).
@@ -1681,6 +1713,44 @@ pub fn engine_notice(engine: State<'_, EngineManager>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_stops_an_engine_that_doesnt_answer() {
+        // A caption worker waiting for an answer that only comes once the engine is stopped.
+        let (answer, waiting) = std::sync::mpsc::channel::<()>();
+        let stuck = std::thread::spawn(move || {
+            let _ = waiting.recv();
+        });
+        let done = std::thread::spawn(|| {});
+        let workers = vec![(1, stuck), (2, done)];
+        let started = std::time::Instant::now();
+        let mut stopped = false;
+        wind_down(
+            None,
+            &workers,
+            std::time::Duration::from_millis(300),
+            || {
+                stopped = true;
+                let _ = answer.send(());
+            },
+        );
+        assert!(stopped, "the engine was stopped");
+        for (_, w) in workers {
+            w.join().unwrap();
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn stop_leaves_an_engine_that_answers_alone() {
+        let quick = std::thread::spawn(|| std::thread::sleep(std::time::Duration::from_millis(50)));
+        let workers = vec![(1, quick)];
+        let mut stopped = false;
+        wind_down(None, &workers, std::time::Duration::from_secs(5), || {
+            stopped = true
+        });
+        assert!(!stopped);
+    }
 
     #[tokio::test]
     async fn moved_meetings_point_to_their_new_folder() {

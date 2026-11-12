@@ -26,6 +26,9 @@ pub struct Engine {
     vad: Shared,
     diar: Shared,
     voice: Shared,
+    /// The diarization and speaker (voice) contexts may not be used by two threads at once
+    /// (parakeet_capi.h); requests run in parallel, so diarizations take turns (VRT-57).
+    speakers: std::sync::Mutex<()>,
     last_error: unsafe extern "C" fn(Ctx) -> *const c_char,
     free_string: unsafe extern "C" fn(*mut c_char),
     transcribe_vad_with:
@@ -120,6 +123,7 @@ impl Engine {
             vad,
             diar,
             voice,
+            speakers: std::sync::Mutex::new(()),
             last_error: sym!("parakeet_capi_last_error"),
             free_string: sym!("parakeet_capi_free_string"),
             transcribe_vad_with: sym!("parakeet_capi_transcribe_path_json_vad_with"),
@@ -221,6 +225,7 @@ impl Engine {
             return Err("diarize: no audio".into());
         }
         let n = c_int::try_from(samples.len()).map_err(|_| "diarize: audio too long")?;
+        let _turn = self.speakers.lock().unwrap_or_else(|e| e.into_inner());
         let p = unsafe {
             (self.diarize_profiles)(
                 self.diar.0,

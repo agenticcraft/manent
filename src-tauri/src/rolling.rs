@@ -90,9 +90,18 @@ pub struct Rolling {
 }
 
 impl Rolling {
+    /// Ask the passes to stop after the one that may be running.
+    pub fn signal_stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.handle.is_finished()
+    }
+
     /// Stop after the pass that may be running; returns once the thread ended.
     pub fn stop(self) {
-        self.stop.store(true, Ordering::SeqCst);
+        self.signal_stop();
         let _ = self.handle.join();
     }
 }
@@ -612,5 +621,36 @@ mod engine_tests {
             voices.iter().all(|v| labels.contains(&v.label)),
             "every voice belongs to a label"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs the downloaded engine and model"]
+    async fn in_a_room_two_tracks_with_speech_are_diarized_without_crashing() {
+        // VRT-57: both tracks diarized at once used libparakeet's speaker context from two
+        // threads, which crashed (or hung) the helper on real meetings.
+        let data = std::env::var_os("MANENT_TEST_ENGINE_DATA").expect("MANENT_TEST_ENGINE_DATA");
+        let paths = AppPaths::new(data.into());
+        let engine = EngineManager::new(paths.clone(), |_| {});
+        let mut mic = fixture("en-two-speakers.wav");
+        mic.extend(fixture("nl-fleurs-1784.wav"));
+        let mut system = fixture("nl-fleurs-1784.wav");
+        system.extend(fixture("en-two-speakers.wav"));
+        system.resize(mic.len(), 0.0);
+        let tmp = crate::test_util::temp_dir();
+        for round in 0..4 {
+            let (blocks, _) = final_pass(
+                &engine,
+                vec![
+                    (track(1, SourceKind::Mic), mic.clone()),
+                    (track(2, SourceKind::Loopback), system.clone()),
+                ],
+                &tmp,
+                true,
+            )
+            .await
+            .unwrap_or_else(|e| panic!("round {round}: {e}"));
+            assert!(blocks.iter().any(|(t, _)| *t == 1) && blocks.iter().any(|(t, _)| *t == 2));
+        }
+        assert_eq!(engine.status().restarts, 0, "the helper never crashed");
     }
 }
