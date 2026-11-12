@@ -79,3 +79,8 @@ src-tauri/gen/schemas/
 spikes/engine/lib-*/
 spikes/engine/target/
 spikes/engine/results/
+
+# Test fixtures the tests and scripts need (read speech CC-BY-4.0, generated tones).
+!src-tauri/tests/fixtures/*.wav
+!src-tauri/tests/fixtures/import/tone.wav
+!src-tauri/tests/fixtures/import/tone.mp4
