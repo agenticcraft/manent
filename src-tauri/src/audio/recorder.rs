@@ -54,6 +54,9 @@ pub struct LevelEvent {
     pub paused: bool,
     /// A muted source records silence (tracks stay aligned); its level reflects the input.
     pub muted: bool,
+    /// Nothing at all has arrived from this source since it started (VRT-12: on macOS, system
+    /// audio without the user's consent).
+    pub no_input: bool,
 }
 
 /// What was written for one source.
@@ -99,6 +102,7 @@ pub struct Track {
     muted: bool,
     silence: Vec<f32>,
     feed: Option<Feed>,
+    input: levels::InputWatch,
 }
 
 impl Track {
@@ -119,6 +123,7 @@ impl Track {
             muted: false,
             silence: Vec::new(),
             feed: None,
+            input: levels::InputWatch::default(),
         })
     }
 
@@ -161,6 +166,7 @@ impl Track {
             peak_db: level.peak_db,
             paused,
             muted: self.muted,
+            no_input: self.input.tick(self.buf.len(), TICK),
         })
     }
 
@@ -442,6 +448,25 @@ mod tests {
         assert_eq!(d.tick(at(431.65), 1.35, false), None);
         // Clock set backwards (NTP): never a gap.
         assert_eq!(d.tick(at(100.0), 1.40, false), None);
+    }
+
+    #[test]
+    fn a_source_that_never_delivers_reports_no_input() {
+        let dir = tempfile_dir();
+        let (_w, r) = sample_ring(16_000);
+        let mut track = Track::new(
+            info("s", SourceKind::Loopback),
+            dir.join("system.flac"),
+            r,
+            16_000,
+            1,
+        )
+        .unwrap();
+        let ticks = (levels::NO_INPUT_AFTER.as_millis() / TICK.as_millis()) as usize;
+        let events: Vec<_> = (0..ticks).map(|_| track.tick(false).unwrap()).collect();
+        assert!(!events[0].no_input, "not at once");
+        assert!(events[ticks - 1].no_input);
+        assert_eq!(track.finish().unwrap().seconds, 0.0);
     }
 
     #[test]

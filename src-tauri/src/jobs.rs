@@ -680,6 +680,7 @@ async fn transcribe(s: &Shared, id: u64, meeting_id: i64, base: f64) -> Result<(
                 meeting_id,
                 from_ms: 0,
                 to_ms: duration_ms as u32,
+                track_ids: None,
                 segments,
             },
         );

@@ -122,6 +122,7 @@ pub fn run() {
         .manage(commands::MonitorState::default())
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            commands::open_privacy_settings,
             commands::list_sources,
             commands::start_recording,
             commands::pause_recording,

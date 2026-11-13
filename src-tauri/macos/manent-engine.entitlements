@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The engine helper under the hardened runtime (VRT-12): it loads libparakeet.dylib, which is
+     downloaded after install and not signed by our team, so library validation is off here only.
+     The app itself keeps library validation (decision-1: the helper is the only unsafe crate). -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

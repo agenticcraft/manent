@@ -53,7 +53,11 @@ export function LiveTranscript({
       setSegments((cur) =>
         sorted([
           ...cur.filter(
-            (s) => s.pass === "final" || s.start_ms < p.from_ms || s.start_ms >= p.to_ms,
+            (s) =>
+              s.pass === "final" ||
+              s.start_ms < p.from_ms ||
+              s.start_ms >= p.to_ms ||
+              (p.track_ids !== null && !p.track_ids.includes(s.track_id)),
           ),
           ...p.segments,
         ]),

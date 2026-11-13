@@ -5,7 +5,7 @@ use std::sync::mpsc;
 use std::thread::JoinHandle;
 
 use super::capture::{AudioSource, CpalSource};
-use super::levels;
+use super::levels::{self, InputWatch};
 use super::recorder::{LevelEvent, RecorderError, TICK};
 use super::ring::RingReader;
 use super::sources::SourceInfo;
@@ -30,13 +30,13 @@ impl Monitor {
             .name("manent-monitor".into())
             .spawn(move || {
                 let mut streams = Vec::new();
-                let mut inputs: Vec<(SourceInfo, RingReader)> = Vec::new();
+                let mut inputs: Vec<(SourceInfo, RingReader, InputWatch)> = Vec::new();
                 let opened = (|| -> Result<(), RecorderError> {
                     for info in sources {
                         let (mut source, reader) = CpalSource::open(info.clone())?;
                         source.start()?;
                         streams.push(source);
-                        inputs.push((info, reader));
+                        inputs.push((info, reader, InputWatch::default()));
                     }
                     Ok(())
                 })();
@@ -47,8 +47,8 @@ impl Monitor {
                 }
                 let mut buf = Vec::new();
                 while let Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(TICK) {
-                    for (info, reader) in &mut inputs {
-                        on_level(level_of(info, reader, &mut buf));
+                    for (info, reader, watch) in &mut inputs {
+                        on_level(level_of(info, reader, watch, &mut buf));
                     }
                 }
                 for s in &mut streams {
@@ -79,7 +79,12 @@ impl Drop for Monitor {
 }
 
 /// Drain what arrived since the last tick and measure it.
-fn level_of(info: &SourceInfo, reader: &mut RingReader, buf: &mut Vec<f32>) -> LevelEvent {
+fn level_of(
+    info: &SourceInfo,
+    reader: &mut RingReader,
+    watch: &mut InputWatch,
+    buf: &mut Vec<f32>,
+) -> LevelEvent {
     buf.clear();
     reader.drain_into(buf);
     let level = levels::measure(buf);
@@ -90,6 +95,7 @@ fn level_of(info: &SourceInfo, reader: &mut RingReader, buf: &mut Vec<f32>) -> L
         peak_db: level.peak_db,
         paused: false,
         muted: false,
+        no_input: watch.tick(buf.len(), TICK),
     }
 }
 
@@ -109,15 +115,17 @@ mod tests {
         };
         let (mut w, mut r) = sample_ring(1024);
         let mut buf = Vec::new();
+        let mut watch = InputWatch::default();
         let square: Vec<f32> = (0..100)
             .map(|i| if i % 2 == 0 { 0.5 } else { -0.5 })
             .collect();
         w.push(&square);
-        let first = level_of(&info, &mut r, &mut buf);
+        let first = level_of(&info, &mut r, &mut watch, &mut buf);
         assert!((first.rms_db - -6.02).abs() < 0.05);
-        let silent = level_of(&info, &mut r, &mut buf);
+        let silent = level_of(&info, &mut r, &mut watch, &mut buf);
         assert_eq!(silent.rms_db, levels::FLOOR_DB, "nothing new -> floor");
         assert_eq!(silent.source_id, "mic");
+        assert!(!silent.no_input, "it delivered before");
     }
 
     /// Needs audio hardware: `cargo test -- --ignored audio_hardware_monitor --nocapture`.
