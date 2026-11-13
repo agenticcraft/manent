@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use serde::Serialize;
 
+use super::sources::SourceKind;
+
 /// Lowest level reported; silence and digital zero map here.
 pub const FLOOR_DB: f32 = -96.0;
 
@@ -44,26 +46,43 @@ pub fn measure(samples: &[f32]) -> Level {
     }
 }
 
-/// How long a source may deliver nothing at all before it counts as having no input.
+/// How long a source may deliver nothing before it counts as having no input.
 pub const NO_INPUT_AFTER: Duration = Duration::from_secs(3);
 
-/// Notices a source that opened fine but never delivers a sample (VRT-12): on macOS that is
-/// what system audio does without the user's consent, and a dead device looks the same.
-/// Digital silence is input (an idle output still sends zeros), so only no samples count.
-#[derive(Debug, Default)]
+/// Notices a source that opened fine but never delivers anything (VRT-12). Without the user's
+/// consent macOS gives system audio no samples or zeros, and a microphone zeros. A real
+/// microphone is never exactly constant (its noise floor; measured: at least -76 dB peak to
+/// peak per 50 ms), so a constant mic signal is nothing, like a dead digital mic stuck at one
+/// value. An idle output also sends zeros, so for system audio only no samples count.
+#[derive(Debug)]
 pub struct InputWatch {
+    /// A constant signal counts as nothing (microphones).
+    constant_is_nothing: bool,
     waited: Duration,
-    received: bool,
+    alive: bool,
 }
 
 impl InputWatch {
+    pub fn new(kind: SourceKind) -> Self {
+        Self {
+            constant_is_nothing: kind == SourceKind::Mic,
+            waited: Duration::ZERO,
+            alive: false,
+        }
+    }
+
     /// Account one tick of `elapsed` in which `samples` arrived; true while there is no input.
-    pub fn tick(&mut self, samples: usize, elapsed: Duration) -> bool {
-        self.received |= samples > 0;
-        if !self.received {
+    /// Once a source delivered, it has input (a later pause or silence is not this).
+    pub fn tick(&mut self, samples: &[f32], elapsed: Duration) -> bool {
+        let something = match samples.split_first() {
+            None => false,
+            Some((first, rest)) => !self.constant_is_nothing || rest.iter().any(|x| x != first),
+        };
+        self.alive |= something;
+        if !self.alive {
             self.waited += elapsed;
         }
-        !self.received && self.waited >= NO_INPUT_AFTER
+        !self.alive && self.waited >= NO_INPUT_AFTER
     }
 }
 
@@ -74,19 +93,36 @@ mod tests {
     #[test]
     fn no_input_only_after_a_while_without_any_sample() {
         let tick = Duration::from_millis(50);
-        let mut w = InputWatch::default();
+        let mut w = InputWatch::new(SourceKind::Loopback);
         let ticks = (NO_INPUT_AFTER.as_millis() / tick.as_millis()) as usize;
-        assert!((1..ticks).all(|_| !w.tick(0, tick)), "not yet");
-        assert!(w.tick(0, tick), "nothing for {NO_INPUT_AFTER:?}");
-        assert!(!w.tick(480, tick), "input arrived");
-        assert!(!w.tick(0, tick), "a later pause is not 'no input'");
+        assert!((1..ticks).all(|_| !w.tick(&[], tick)), "not yet");
+        assert!(w.tick(&[], tick), "nothing for {NO_INPUT_AFTER:?}");
+        assert!(!w.tick(&[0.1, -0.1], tick), "input arrived");
+        assert!(!w.tick(&[], tick), "a later pause is not 'no input'");
     }
 
     #[test]
-    fn digital_silence_is_input() {
-        let mut w = InputWatch::default();
-        assert!(!w.tick(4800, NO_INPUT_AFTER));
-        assert!(!w.tick(0, NO_INPUT_AFTER));
+    fn zeros_are_system_audio_but_not_a_microphone() {
+        let zeros = [0.0; 2400];
+        let mut system = InputWatch::new(SourceKind::Loopback);
+        assert!(!system.tick(&zeros, NO_INPUT_AFTER), "an idle output");
+        let mut mic = InputWatch::new(SourceKind::Mic);
+        assert!(mic.tick(&zeros, NO_INPUT_AFTER), "a mic without consent");
+        assert!(
+            !mic.tick(&[0.0, 1e-4, -1e-4], NO_INPUT_AFTER),
+            "its noise floor"
+        );
+        assert!(
+            !mic.tick(&zeros, NO_INPUT_AFTER),
+            "silent later: still input"
+        );
+    }
+
+    #[test]
+    fn a_mic_stuck_at_one_value_has_no_input() {
+        // The dead digital mic on the Linux test machine delivers a constant -0.177.
+        let mut mic = InputWatch::new(SourceKind::Mic);
+        assert!(mic.tick(&[-0.177; 2400], NO_INPUT_AFTER));
     }
 
     #[test]
