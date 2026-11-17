@@ -1,17 +1,47 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { call, on, type ShortcutStatus } from "@/lib/ipc";
+import { call, on, type ShortcutStatus, type ShortcutView } from "@/lib/ipc";
 
-/** The keys asked for; the desktop shows what it bound once the shortcuts are on. */
-const WANTED = [
+/** The keys asked for; the desktop shows what it bound once they are on. */
+const RECORDING: readonly ShortcutView[] = [
   { id: "toggle-recording", description: "Start or stop recording", trigger: "Ctrl+Alt+R" },
   { id: "mark-moment", description: "Mark this moment", trigger: "Ctrl+Alt+M" },
-] as const;
+];
+const DICTATE: ShortcutView = {
+  id: "dictate",
+  description: "Hold to dictate",
+  trigger: "Ctrl+Shift+Space",
+};
 
-/** Settings > Shortcuts (VRT-40): global keys through the desktop, off until turned on. */
+type Group = "recording" | "dictation";
+
+function KeyRow({ shortcut, bound }: { shortcut: ShortcutView; bound: boolean }) {
+  return (
+    <li
+      className="flex items-center justify-between gap-4"
+      data-testid="shortcut-row"
+      data-id={shortcut.id}
+    >
+      <span>{shortcut.description}</span>
+      <kbd
+        className={
+          "rounded border bg-muted px-1.5 py-0.5 font-sans text-xs tabular-nums " +
+          (bound ? "text-foreground" : "text-muted-foreground")
+        }
+      >
+        {shortcut.trigger ?? "No keys"}
+      </kbd>
+    </li>
+  );
+}
+
+/**
+ * Settings > Shortcuts: global keys through the desktop (VRT-40) and hold-to-dictate (VRT-58),
+ * each off until turned on.
+ */
 export function ShortcutsSettings() {
   const [status, setStatus] = useState<ShortcutStatus | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Group | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,79 +60,91 @@ export function ShortcutsSettings() {
       </p>
     );
 
-  const turn = async (enabled: boolean) => {
+  const turn = async (group: Group, enabled: boolean) => {
     setMessage(null);
-    setBusy(true);
+    setBusy(group);
     try {
-      const s = await call("set_shortcuts_enabled", { enabled });
+      const s = await call(
+        group === "recording" ? "set_shortcuts_enabled" : "set_dictation_enabled",
+        { enabled },
+      );
       setStatus(s);
       if (s.error) setMessage(s.error);
     } catch (e) {
       setMessage(String(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
-  const rows = status.enabled ? status.shortcuts : WANTED;
+  const bound = (s: ShortcutView) => status.shortcuts.find((b) => b.id === s.id) ?? s;
+  const toggle = (group: Group, enabled: boolean, testid: string) =>
+    enabled ? (
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => turn(group, false)}
+        disabled={busy !== null}
+        data-testid={`${testid}-off`}
+      >
+        Turn off
+      </Button>
+    ) : (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => turn(group, true)}
+        disabled={busy !== null}
+        data-testid={`${testid}-on`}
+      >
+        {busy === group ? "Waiting for the desktop…" : "Turn on"}
+      </Button>
+    );
+
   return (
-    <div className="mt-3 flex flex-col gap-3" data-testid="shortcuts-settings">
-      <ul className="flex flex-col gap-2 text-sm">
-        {rows.map((s) => (
-          <li
-            key={s.id}
-            className="flex items-center justify-between gap-4"
-            data-testid="shortcut-row"
-            data-id={s.id}
-          >
-            <span>{s.description}</span>
-            <kbd
-              className={
-                "rounded border bg-muted px-1.5 py-0.5 font-sans text-xs tabular-nums " +
-                (status.enabled ? "text-foreground" : "text-muted-foreground")
-              }
-            >
-              {s.trigger ?? "No keys"}
-            </kbd>
-          </li>
-        ))}
-      </ul>
-      <div className="flex flex-wrap items-center gap-2">
-        {status.enabled ? (
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                call("open_shortcut_settings").catch((e: unknown) => setMessage(String(e)))
-              }
-              data-testid="change-shortcuts"
-            >
-              Change keys…
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => turn(false)}
-              disabled={busy}
-              data-testid="shortcuts-off"
-            >
-              Turn off
-            </Button>
-          </>
-        ) : (
+    <div className="mt-3 flex flex-col gap-5" data-testid="shortcuts-settings">
+      <div className="flex flex-col gap-3">
+        <ul className="flex flex-col gap-2 text-sm">
+          {RECORDING.map((s) => (
+            <KeyRow key={s.id} shortcut={status.enabled ? bound(s) : s} bound={status.enabled} />
+          ))}
+        </ul>
+        <div className="flex flex-wrap items-center gap-2">
+          {toggle("recording", status.enabled, "shortcuts")}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t pt-4" data-testid="dictation-settings">
+        <div>
+          <p className="text-sm font-medium">Dictation</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Hold the key and speak. When you let go, the text is on the clipboard, ready to paste.
+            Only the microphone is used, and nothing is saved.
+          </p>
+        </div>
+        <ul className="flex flex-col gap-2 text-sm">
+          <KeyRow shortcut={status.dictation ? bound(DICTATE) : DICTATE} bound={status.dictation} />
+        </ul>
+        <div className="flex flex-wrap items-center gap-2">
+          {toggle("dictation", status.dictation, "dictation")}
+        </div>
+      </div>
+
+      {(status.enabled || status.dictation) && (
+        <div>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => turn(true)}
-            disabled={busy}
-            data-testid="shortcuts-on"
+            onClick={() =>
+              call("open_shortcut_settings").catch((e: unknown) => setMessage(String(e)))
+            }
+            data-testid="change-shortcuts"
           >
-            {busy ? "Waiting for the desktop…" : "Turn on"}
+            Change keys…
           </Button>
-        )}
-      </div>
-      {busy && !status.enabled && (
+        </div>
+      )}
+      {busy && (
         <p className="text-xs text-muted-foreground" role="status">
           Your desktop asks once whether Manent may use these keys.
         </p>

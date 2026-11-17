@@ -79,7 +79,7 @@ export interface Mark {
 
 /** A global shortcut as the desktop bound it (VRT-40; Rust: shortcuts::ShortcutView). */
 export interface ShortcutView {
-  id: "toggle-recording" | "mark-moment";
+  id: "toggle-recording" | "mark-moment" | "dictate";
   description: string;
   /** "Ctrl+Alt+R"; null when the user gave it no keys. */
   trigger: string | null;
@@ -89,7 +89,11 @@ export interface ShortcutView {
 export interface ShortcutStatus {
   /** This desktop offers global shortcuts. */
   supported: boolean;
+  /** The recording shortcuts (start/stop, mark) are bound. */
   enabled: boolean;
+  /** The dictation shortcut is bound (VRT-58). */
+  dictation: boolean;
+  /** The bound shortcuts, as the desktop reports them. */
   shortcuts: ShortcutView[];
   /** Why they could not be turned on. */
   error: string | null;
@@ -347,6 +351,7 @@ export interface Commands {
   delete_mark: { args: { id: number }; result: null };
   get_shortcuts: { args: NoArgs; result: ShortcutStatus };
   set_shortcuts_enabled: { args: { enabled: boolean }; result: ShortcutStatus };
+  set_dictation_enabled: { args: { enabled: boolean }; result: ShortcutStatus };
   open_shortcut_settings: { args: NoArgs; result: null };
   name_speaker: { args: { meetingId: number; label: string; name: string }; result: null };
   confirm_suggestion: { args: { meetingId: number; label: string }; result: null };

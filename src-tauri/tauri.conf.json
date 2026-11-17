@@ -51,6 +51,7 @@
           "/usr/share/applications/ai.agenticcraft.manent.desktop": "linux/ai.agenticcraft.manent.desktop"
         },
         "release": "1",
+        "depends": ["wl-clipboard"],
         "desktopTemplate": "linux/hidden.desktop.hbs"
       }
     }

@@ -61,7 +61,7 @@ class Session:
         path.write_bytes(base64.b64decode(self._wd("GET", f"{self.base}/screenshot")))
 
     def check(self, cond, msg):
-        print(("ok   " if cond else "FAIL ") + msg)
+        print(("ok   " if cond else "FAIL ") + msg, flush=True)
         if not cond:
             self.failures.append(msg)
 

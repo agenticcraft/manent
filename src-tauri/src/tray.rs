@@ -18,6 +18,7 @@ const SHOW: &str = "show";
 const QUIT: &str = "quit";
 const IDLE_ICON: &[u8] = include_bytes!("../icons/tray.png");
 const RECORDING_ICON: &[u8] = include_bytes!("../icons/tray-recording.png");
+const DICTATING_ICON: &[u8] = include_bytes!("../icons/tray-dictating.png");
 
 /// The toggle menu item, kept to change its text.
 pub struct TrayToggle(MenuItem<tauri::Wry>);
@@ -81,6 +82,22 @@ pub fn set_recording(app: &AppHandle, recording: bool) {
         } else {
             "Start recording"
         });
+    }
+}
+
+/// Show that dictation is listening (VRT-58): a calm dot in the accent colour, not the red
+/// recording dot. Dictation never runs during a recording, so the two don't overlap.
+pub fn set_dictating(app: &AppHandle, listening: bool) {
+    if let Some(tray) = app.tray_by_id(ID) {
+        let icon = if listening { DICTATING_ICON } else { IDLE_ICON };
+        if let Ok(image) = Image::from_bytes(icon) {
+            let _ = tray.set_icon(Some(image));
+        }
+        let _ = tray.set_tooltip(Some(if listening {
+            "Manent: listening"
+        } else {
+            "Manent"
+        }));
     }
 }
 

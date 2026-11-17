@@ -3,7 +3,7 @@
 use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut, Shortcut};
 use futures_util::StreamExt;
 
-use super::{APP_ID, Action, ShortcutView, pretty_trigger};
+use super::{APP_ID, Action, ShortcutView, Signal, pretty_trigger};
 
 pub const SUPPORTED: bool = true;
 
@@ -45,7 +45,8 @@ fn explain(e: ashpd::Error) -> String {
 }
 
 pub async fn bind(
-    on_action: impl Fn(Action) + Send + Sync + 'static,
+    actions: &[Action],
+    on_action: impl Fn(Action, Signal) + Send + Sync + 'static,
     on_changed: impl Fn(Vec<ShortcutView>) + Send + Sync + 'static,
 ) -> Result<(Running, Vec<ShortcutView>), String> {
     // A host app (not sandboxed) tells the portal who it is; this needs the desktop file
@@ -59,7 +60,7 @@ pub async fn bind(
         .create_session(Default::default())
         .await
         .map_err(explain)?;
-    let wanted: Vec<NewShortcut> = Action::ALL
+    let wanted: Vec<NewShortcut> = actions
         .iter()
         .map(|a| NewShortcut::new(a.id(), a.description()).preferred_trigger(a.preferred_trigger()))
         .collect();
@@ -70,6 +71,8 @@ pub async fn bind(
         .response()
         .map_err(explain)?;
     let mut activated = portal.receive_activated().await.map_err(explain)?;
+    // Releases make hold-to-dictate work (VRT-58); GNOME sends one per key release.
+    let mut deactivated = portal.receive_deactivated().await.map_err(explain)?;
     let mut changed = portal.receive_shortcuts_changed().await.map_err(explain)?;
     let (stop, mut stopped) = tokio::sync::oneshot::channel();
     let task = tauri::async_runtime::spawn(async move {
@@ -79,7 +82,12 @@ pub async fn bind(
             tokio::select! {
                 Some(a) = activated.next() => {
                     if let Some(action) = Action::from_id(a.shortcut_id()) {
-                        on_action(action);
+                        on_action(action, Signal::Activated);
+                    }
+                }
+                Some(d) = deactivated.next() => {
+                    if let Some(action) = Action::from_id(d.shortcut_id()) {
+                        on_action(action, Signal::Deactivated);
                     }
                 }
                 Some(c) = changed.next() => on_changed(views(c.shortcuts())),

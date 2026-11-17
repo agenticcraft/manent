@@ -1,7 +1,7 @@
 //! Global shortcuts on macOS and Windows come with their audio code (VRT-11, VRT-12;
 //! decision-10: tauri-plugin-global-shortcut there).
 
-use super::{Action, ShortcutView};
+use super::{Action, ShortcutView, Signal};
 
 pub const SUPPORTED: bool = false;
 
@@ -12,7 +12,8 @@ impl Running {
 }
 
 pub async fn bind(
-    _on_action: impl Fn(Action) + Send + Sync + 'static,
+    _actions: &[Action],
+    _on_action: impl Fn(Action, Signal) + Send + Sync + 'static,
     _on_changed: impl Fn(Vec<ShortcutView>) + Send + Sync + 'static,
 ) -> Result<(Running, Vec<ShortcutView>), String> {
     Err("Global shortcuts are not available on this system yet.".into())

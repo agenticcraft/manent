@@ -25,12 +25,13 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
-pub use capture::list_sources;
+pub use capture::{AudioSource, CpalSource, list_sources};
 pub use import::import_to_flac;
 pub use mixdown::{MixSummary, decode_mono, mixdown_with_progress};
 pub use monitor::Monitor;
 pub use recorder::{Feed, Gap, Recording, Stopped, TrackSummary, track_file_names};
 pub use recover::repair_flac;
+pub use ring::RingReader;
 pub use sources::{SourceInfo, SourceKind};
 pub use waveform::{waveform, waveform_from_power};
 

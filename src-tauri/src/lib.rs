@@ -7,6 +7,7 @@ mod commands;
 // Query functions are consumed from VRT-7/VRT-8 on; remove this allow there.
 #[allow(dead_code)]
 mod db;
+mod dictation;
 mod engine;
 mod export;
 mod jobs;
@@ -119,6 +120,7 @@ pub fn run() {
         })
         .manage(commands::RecorderState::default())
         .manage(shortcuts::Shortcuts::default())
+        .manage(dictation::Dictation::default())
         .manage(commands::MonitorState::default())
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
@@ -137,6 +139,7 @@ pub fn run() {
             commands::delete_mark,
             shortcuts::get_shortcuts,
             shortcuts::set_shortcuts_enabled,
+            shortcuts::set_dictation_enabled,
             shortcuts::open_shortcut_settings,
             commands::set_source_muted,
             commands::rename_meeting,

@@ -104,7 +104,7 @@ s.check(pos >= rows[0][0] / 1000 - 0.2, f"clicking a mark's time plays from ther
 
 # Settings > Shortcuts.
 s.js("[...document.querySelectorAll('nav ul button')].find(b => b.textContent.trim() == 'Settings').click()")
-keys = s.wait_for("return [...document.querySelectorAll('[data-testid=shortcut-row] kbd')].map(k => k.textContent).join(' ')", 5)
+keys = s.wait_for("return [...document.querySelectorAll('[data-testid=shortcut-row]:not([data-id=dictate]) kbd')].map(k => k.textContent).join(' ')", 5)
 s.check(keys == "Ctrl+Alt+R Ctrl+Alt+M", f"Settings lists the shortcuts: {keys!r}")
 s.check(bool(s.js("return document.querySelector('[data-testid=shortcuts-on]')")), "shortcuts are off until turned on")
 s.js("document.querySelector('[data-testid=shortcuts-settings]').scrollIntoView({block: 'center'})")

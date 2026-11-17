@@ -9,4 +9,5 @@ printf '[Desktop Entry]\nType=Application\nName=Dictation probe\nExec=/bin/true\
 exec env -i PATH=/usr/bin:/bin HOME="$W/home" XDG_RUNTIME_DIR="$RT" XDG_CONFIG_HOME="$W/cfg" XDG_DATA_HOME="$W/data" \
   XDG_CACHE_HOME="$W/cache" XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=GNOME LANG=en_US.UTF-8 GTK_A11Y=none \
   MUTTER_DEBUG_TOPICS="${MUTTER_DEBUG_TOPICS:-}" ALSO_PRIMARY="${ALSO_PRIMARY:-}" \
+  PIPEWIRE_RUNTIME_DIR="${PIPEWIRE_RUNTIME_DIR:-}" CARGO_HOME="${CARGO_HOME:-}" RUSTUP_HOME="${RUSTUP_HOME:-}" \
   dbus-run-session -- "$D/session.sh" "$@"
