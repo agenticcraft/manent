@@ -1,6 +1,6 @@
 [package]
 name = "manent-engine"
-version = "0.1.7"
+version = "0.1.8"
 description = "Manent transcription engine helper: runs libparakeet (parakeet.cpp) out of process"
 authors = ["Rob"]
 license = "GPL-3.0-or-later"
