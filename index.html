@@ -1,21 +1,42 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Manent</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font: 16px/1.6 system-ui, sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; }
-  pre { overflow-x: auto; padding: 1rem; border: 1px solid #8884; border-radius: 8px; }
-</style>
-</head>
-<body>
-<h1>Manent</h1>
-<p>A local-first desktop app that records meetings and transcribes them live in Dutch and English, with speaker identification. This is its signed package repository for Fedora.</p>
-<pre><code>sudo dnf config-manager addrepo --from-repofile=https://agenticcraft.github.io/manent/rpm/manent.repo
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manent</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+        max-width: 42rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+      }
+      pre {
+        overflow-x: auto;
+        padding: 1rem;
+        border: 1px solid #8884;
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Manent</h1>
+    <p>
+      A local-first desktop app that records meetings and transcribes them live in Dutch and
+      English, with speaker identification. This is its signed package repository for Fedora.
+    </p>
+    <pre><code>sudo dnf config-manager addrepo --from-repofile=https://agenticcraft.github.io/manent/rpm/manent.repo
 sudo dnf install manent</code></pre>
-<p>dnf asks you to trust the key "AgenticCraft Releases", fingerprint <code>1F7D 3617 A994 9B2D B005 8809 74C2 7C26 B291 9785</code>. Updates then come with dnf and GNOME Software.</p>
-<p><a href="https://github.com/agenticcraft/manent">Source code and documentation</a></p>
-</body>
+    <p>
+      dnf asks you to trust the key "AgenticCraft Releases", fingerprint
+      <code>1F7D 3617 A994 9B2D B005 8809 74C2 7C26 B291 9785</code>. Updates then come with dnf and
+      GNOME Software.
+    </p>
+    <p><a href="https://github.com/agenticcraft/manent">Source code and documentation</a></p>
+  </body>
 </html>
