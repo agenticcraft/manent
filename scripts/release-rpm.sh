@@ -25,7 +25,8 @@ SKIP_BUILD=0
 VERSION=""
 PUBLISH=0
 PUBLIC_URL="https://agenticcraft.github.io/manent/rpm"
-PAGES_REMOTE="git@github.com:agenticcraft/manent.git"
+# The github remote's URL (ssh over port 443 where port 22 is blocked), or $PAGES_REMOTE.
+PAGES_REMOTE="${PAGES_REMOTE:-$(git remote get-url github 2>/dev/null || echo git@github.com:agenticcraft/manent.git)}"
 BASE_URL="$PUBLIC_URL"
 while [ $# -gt 0 ]; do
   case "$1" in
