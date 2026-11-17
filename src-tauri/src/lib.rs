@@ -93,6 +93,8 @@ pub fn run() {
             ));
             // Global shortcuts (VRT-40), if the user turned them on.
             shortcuts::start(app.handle(), &db);
+            // Dictation's paste settings, and auto-paste if it was on (VRT-59).
+            dictation::start(app.handle(), &db);
             app.manage(db);
             // Tray icon (VRT-22); the app works without one (e.g. a desktop without a tray).
             if let Err(e) = tray::build(app.handle()) {
@@ -140,6 +142,9 @@ pub fn run() {
             shortcuts::get_shortcuts,
             shortcuts::set_shortcuts_enabled,
             shortcuts::set_dictation_enabled,
+            dictation::get_dictation_paste,
+            dictation::set_dictation_paste,
+            dictation::set_paste_key,
             shortcuts::open_shortcut_settings,
             commands::set_source_muted,
             commands::rename_meeting,

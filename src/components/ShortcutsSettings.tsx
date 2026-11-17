@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { call, on, type ShortcutStatus, type ShortcutView } from "@/lib/ipc";
+import {
+  call,
+  on,
+  type PasteKey,
+  type PasteStatus,
+  type ShortcutStatus,
+  type ShortcutView,
+} from "@/lib/ipc";
 
 /** The keys asked for; the desktop shows what it bound once they are on. */
 const RECORDING: readonly ShortcutView[] = [
@@ -32,6 +40,104 @@ function KeyRow({ shortcut, bound }: { shortcut: ShortcutView; bound: boolean })
         {shortcut.trigger ?? "No keys"}
       </kbd>
     </li>
+  );
+}
+
+/** Typing the dictated text (VRT-59), off until turned on; the desktop asks once. */
+function AutoPasteSettings() {
+  const [status, setStatus] = useState<PasteStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    call("get_dictation_paste").then(setStatus, () => {});
+    const off = on("dictation:paste", setStatus);
+    return () => {
+      off.then((f) => f());
+    };
+  }, []);
+
+  if (!status?.supported) return null;
+
+  const turn = async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      setStatus(await call("set_dictation_paste", { enabled }));
+    } catch (e) {
+      setStatus({ ...status, error: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3" data-testid="autopaste-settings">
+      <div className="flex items-center justify-between gap-4 text-sm">
+        <span>
+          Type automatically
+          <span className="block text-xs text-muted-foreground">
+            Types the text where the cursor is. Characters your keyboard can’t type are pasted, and
+            your clipboard is put back.
+          </span>
+        </span>
+        {status.enabled ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => turn(false)}
+            disabled={busy}
+            data-testid="autopaste-off"
+          >
+            Turn off
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => turn(true)}
+            disabled={busy}
+            data-testid="autopaste-on"
+          >
+            {busy ? "Waiting for the desktop…" : "Turn on"}
+          </Button>
+        )}
+      </div>
+      {busy && !status.enabled && (
+        <p className="text-xs text-muted-foreground" role="status">
+          Your desktop asks once. Switch on “Allow Remote Interaction”, then choose Share.
+        </p>
+      )}
+      {status.enabled && (
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <span>
+            Paste with
+            <span className="block text-xs text-muted-foreground">
+              For characters your keyboard can’t type. Terminals paste with Ctrl+Shift+V.
+            </span>
+          </span>
+          <span className="relative flex items-center">
+            <select
+              value={status.key}
+              onChange={(e) => {
+                const key = e.target.value as PasteKey;
+                setStatus({ ...status, key });
+                call("set_paste_key", { key }).then(setStatus, () => {});
+              }}
+              className="h-8 appearance-none rounded-md border bg-background pr-8 pl-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              data-testid="paste-key"
+            >
+              <option value="ctrl-v">Ctrl+V</option>
+              <option value="ctrl-shift-v">Ctrl+Shift+V</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2 size-4 text-muted-foreground" />
+          </span>
+        </label>
+      )}
+      {status.error && (
+        <p className="text-sm text-muted-foreground" role="status" data-testid="autopaste-message">
+          {status.error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -128,6 +234,7 @@ export function ShortcutsSettings() {
         <div className="flex flex-wrap items-center gap-2">
           {toggle("dictation", status.dictation, "dictation")}
         </div>
+        {status.dictation && <AutoPasteSettings />}
       </div>
 
       {(status.enabled || status.dictation) && (

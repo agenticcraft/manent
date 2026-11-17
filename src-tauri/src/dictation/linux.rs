@@ -7,6 +7,11 @@ use std::process::{Command, Stdio};
 
 use ashpd::desktop::notification::{Notification, NotificationProxy, Priority};
 
+pub use super::autopaste::AutoPaste;
+
+/// Auto-paste works here (VRT-59).
+pub const AUTOPASTE: bool = true;
+
 /// Put `text` on the clipboard. wl-copy keeps serving it from the background after it exits.
 pub async fn copy(text: &str) -> Result<(), String> {
     let text = text.to_string();

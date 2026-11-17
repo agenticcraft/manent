@@ -70,9 +70,13 @@ strip = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 cpal = { version = "0.18", features = ["pipewire"] }
-# Global shortcuts and notifications through the XDG portals (decision-10, decision-11).
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts", "notification"] }
+# Global shortcuts, notifications and auto-paste through the XDG portals (decision-10, decision-11;
+# remote_desktop needs the screencast module to compile, no screen is shared).
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts", "notification", "remote_desktop", "screencast", "clipboard"] }
 futures-util = "0.3"
+# libei client for the RemoteDesktop portal's keyboard (auto-paste, VRT-59, decision-11).
+reis = { version = "0.7.1", features = ["tokio"] }
+xkbcommon = { version = "0.9", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }

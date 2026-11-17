@@ -99,6 +99,19 @@ export interface ShortcutStatus {
   error: string | null;
 }
 
+/** The key that pastes in the focused app (VRT-59; Rust: dictation::PasteKey). */
+export type PasteKey = "ctrl-v" | "ctrl-shift-v";
+
+/** Auto-paste after dictation (VRT-59; Rust: dictation::PasteStatus). */
+export interface PasteStatus {
+  /** This system can paste automatically. */
+  supported: boolean;
+  enabled: boolean;
+  key: PasteKey;
+  /** Why it could not be turned on, or turned itself off. */
+  error: string | null;
+}
+
 export interface TranscriptSegment {
   meeting_id: number;
   track_id: number;
@@ -352,6 +365,9 @@ export interface Commands {
   get_shortcuts: { args: NoArgs; result: ShortcutStatus };
   set_shortcuts_enabled: { args: { enabled: boolean }; result: ShortcutStatus };
   set_dictation_enabled: { args: { enabled: boolean }; result: ShortcutStatus };
+  get_dictation_paste: { args: NoArgs; result: PasteStatus };
+  set_dictation_paste: { args: { enabled: boolean }; result: PasteStatus };
+  set_paste_key: { args: { key: PasteKey }; result: PasteStatus };
   open_shortcut_settings: { args: NoArgs; result: null };
   name_speaker: { args: { meetingId: number; label: string; name: string }; result: null };
   confirm_suggestion: { args: { meetingId: number; label: string }; result: null };
@@ -408,6 +424,8 @@ export interface Events {
   "meeting:marks": { meeting_id: number; added: Mark | null };
   /** The global shortcuts were turned on or off, or their keys changed (VRT-40). */
   "shortcuts:changed": ShortcutStatus;
+  /** Auto-paste was turned on or off, or its key changed (VRT-59). */
+  "dictation:paste": PasteStatus;
   /** A recording started or stopped, from the window or the tray (VRT-22). */
   "recording:started": RecordingStarted;
   /** The meeting id of the recording that stopped. */

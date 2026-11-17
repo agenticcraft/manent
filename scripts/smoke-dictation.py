@@ -16,6 +16,13 @@ Checks: Settings > Shortcuts > Dictation (screenshots light and dark), turning i
 dialog is accepted with the virtual keyboard), the engine-missing notice, a tap that does
 nothing, Dutch and English dictation to the clipboard, nothing heard, nothing stored, the
 block during a meeting recording, and dictation still on after a restart.
+
+Auto-paste (VRT-59): refusing GNOME's Remote Desktop dialog turns the setting off with a
+reason; accepting it (Allow Remote Interaction switched on) types into a GTK text field, after
+the user lets go of Ctrl+Shift, and leaves the clipboard alone; it types into a terminal
+(alacritty); with a Russian layout (latin letters can't be typed) the letters are pasted and
+the previous clipboard text is put back; after a restart it types without asking; turning
+it off forgets the token.
 """
 import os
 import signal
@@ -89,8 +96,9 @@ def clipboard():
     return r.stdout if r.returncode == 0 else ""
 
 
-def hold(seconds, wav=None):
-    """Hold Ctrl+Shift+Space for `seconds`, playing `wav` into the virtual mic meanwhile."""
+def hold(seconds, wav=None, linger=0.0):
+    """Hold Ctrl+Shift+Space for `seconds`, playing `wav` into the virtual mic meanwhile; with
+    `linger`, Ctrl+Shift stay down that long after Space is let go."""
     for k in ("ctrl", "shift", "space"):
         kb.key(KEY[k], True)
     t0 = time.monotonic()
@@ -102,7 +110,9 @@ def hold(seconds, wav=None):
         kb.pump(0.02)
     if player:
         player.wait()
-    for k in ("space", "shift", "ctrl"):
+    kb.key(KEY["space"], False)
+    kb.pump(max(linger, 0.02))
+    for k in ("shift", "ctrl"):
         kb.key(KEY[k], False)
     kb.pump(0.05)
 
@@ -113,6 +123,67 @@ def themed(s, name):
         s.js(f"document.documentElement.classList.toggle('dark', {str(dark).lower()})")
         time.sleep(0.4)
         s.screenshot(OUT / f"{name}-{'dark' if dark else 'light'}.png")
+
+
+def setting(key):
+    con = sqlite3.connect(DATA / "manent.db")
+    row = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    con.close()
+    return row[0] if row else None
+
+
+def accept_remote_desktop():
+    """GNOME's Remote Desktop dialog: switch on Allow Remote Interaction, then Share."""
+    time.sleep(3)
+    shot(str(OUT / "gnome-remote-desktop-dialog.png"))
+    kb.tap(KEY["tab"])
+    time.sleep(0.3)
+    kb.tap(KEY["space"])
+    time.sleep(0.3)
+    for _ in range(2):
+        kb.tap(KEY["shift"], KEY["tab"])
+        time.sleep(0.3)
+    kb.tap(KEY["enter"])
+
+
+def target(cmd, out):
+    """A window that writes what is typed or pasted into it to `out`."""
+    out.write_text("")
+    proc = subprocess.Popen(cmd, env={**os.environ, "GTK_IM_MODULE": "gtk-im-context-simple"},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(4)
+    return proc
+
+
+def paste_into(s, label, cmd, out, expect, outcome, enter=False, linger=0.0):
+    """Dictate English into the window `cmd` opens; `expect` is a word, or the whole text."""
+    proc = target(cmd, out)
+    subprocess.run(["wl-copy", "earlier clipboard é"], check=True)
+    n = log_len()
+    hold(0.5, SPEECH["en"][0], linger)
+    pasted = wait_log(n, "dictation: pasted", 90)
+    if enter:
+        time.sleep(0.5)
+        kb.tap(KEY["enter"])
+    time.sleep(1)
+    got = out.read_text(errors="replace").strip()
+    ok = got == expect if " " in expect else expect in got.lower()
+    s.check(bool(pasted) and f"({outcome})" in pasted and ok, f"{label}: {got!r} ({pasted})")
+    proc.terminate()
+    return got if pasted else None
+
+
+def layout(name):
+    subprocess.run(["gsettings", "set", "org.gnome.desktop.input-sources", "sources",
+                    f"[('xkb', '{name}')]"], check=True)
+    # The desktop replaces the EIS keyboards with ones for the new layout, a few seconds later.
+    resumed = kb.log.count("EI_EVENT_DEVICE_RESUMED")
+    end = time.monotonic() + 20
+    while kb.log.count("EI_EVENT_DEVICE_RESUMED") == resumed and time.monotonic() < end:
+        kb.pump(0.1)
+    kb.pump(1)
+    print(f"     layout {name}: keyboard replaced after "
+          f"{20 - (end - time.monotonic()):.1f} s", flush=True)
 
 
 def open_settings(s):
@@ -234,6 +305,69 @@ try:
     hold(0.5, SPEECH["en"][0])
     ready = wait_log(n, "notification: Ready to paste", 60)
     s.check(bool(ready) and "moldova" in clipboard().lower(), f"and works: {clipboard()!r}")
+
+    # Auto-paste: refusing the desktop's dialog turns it off again, with a reason.
+    s.wait_for("return document.querySelector('[data-testid=autopaste-on]')", 10)
+    themed(s, "settings-autopaste-off")
+
+    def refuse():
+        time.sleep(3)
+        kb.tap(KEY["esc"])
+
+    threading.Thread(target=refuse, daemon=True).start()
+    s.js("document.querySelector('[data-testid=autopaste-on]').click()")
+    msg = s.wait_for("return document.querySelector('[data-testid=autopaste-message]')?.textContent", 30)
+    s.check(bool(msg) and bool(s.js("return document.querySelector('[data-testid=autopaste-on]')")),
+            f"refusing the dialog leaves it off: {msg!r}")
+    s.check(setting("dictation.autopaste") in (None, "false"), f"and stored off: {setting('dictation.autopaste')}")
+
+    threading.Thread(target=accept_remote_desktop, daemon=True).start()
+    s.js("document.querySelector('[data-testid=autopaste-on]').click()")
+    on = s.wait_for("return document.querySelector('[data-testid=autopaste-off]')", 30)
+    msg = s.js("return document.querySelector('[data-testid=autopaste-message]')?.textContent")
+    s.check(bool(on), f"accepting turns it on (message: {msg})")
+    s.check(bool(setting("dictation.paste_token")) and setting("dictation.paste_token") != "null",
+            "the restore token is stored")
+    themed(s, "settings-autopaste-on")
+
+    gtk_out = OUT / "gtk-target.txt"
+    gtk = ["python3", str(ROOT / "spikes" / "dictation" / "target.py"), str(gtk_out)]
+    # Ctrl+Shift stay down after Space: typing waits for them, or "a" would be Ctrl+Shift+A.
+    text = paste_into(s, "typed into a GTK text field", gtk, gtk_out, "moldova", "Typed", linger=1.5)
+    s.check(clipboard() == "earlier clipboard é", f"and the clipboard is untouched: {clipboard()!r}")
+
+    # Terminals get typed text too: no paste key involved.
+    term_out = OUT / "terminal.txt"
+    paste_into(s, "typed into a terminal (alacritty)",
+               ["alacritty", "-e", "sh", "-c", f"cat > {term_out}"], term_out, text or "moldova",
+               "Typed", enter=True)
+
+    # A layout without latin letters: those are pasted, the rest is typed.
+    s.js("const k = document.querySelector('[data-testid=paste-key]'); k.value = 'ctrl-shift-v';"
+         "k.dispatchEvent(new Event('change', {bubbles: true}))")
+    time.sleep(1)
+    s.check(setting("dictation.paste_key") == '"ctrl-shift-v"', f"the paste key is stored: {setting('dictation.paste_key')}")
+    s.js("const k = document.querySelector('[data-testid=paste-key]'); k.value = 'ctrl-v';"
+         "k.dispatchEvent(new Event('change', {bubbles: true}))")
+    time.sleep(1)
+    layout("ru")
+    paste_into(s, "with a Russian layout the letters are pasted", gtk, gtk_out, text or "moldova",
+               "Restored")
+    time.sleep(0.5)
+    s.check(clipboard() == "earlier clipboard é", f"and the earlier clipboard is back: {clipboard()!r}")
+    layout("us")
+    failures += s.failures
+    s.close()
+
+    # After a restart auto-paste is on again without a dialog.
+    s = Session(APP)
+    open_settings(s)
+    on = s.wait_for("return document.querySelector('[data-testid=autopaste-off]')", 20)
+    s.check(bool(on), "auto-paste is still on after a restart, without asking")
+    paste_into(s, "and types", gtk, gtk_out, text or "moldova", "Typed")
+    s.js("document.querySelector('[data-testid=autopaste-off]').click()")
+    s.check(bool(s.wait_for("return document.querySelector('[data-testid=autopaste-on]')", 10)), "auto-paste turned off")
+    s.check(setting("dictation.paste_token") in (None, "null"), f"and the token is forgotten: {setting('dictation.paste_token')}")
 
     # Turning it off lets go of the key.
     s.js("document.querySelector('[data-testid=dictation-off]').click()")

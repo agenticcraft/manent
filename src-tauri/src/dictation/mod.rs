@@ -3,13 +3,18 @@
 //! clipboard; a notification says it is ready to paste. Nothing is stored: no meeting, no
 //! speakers, and the audio stays in memory (the engine helper reads it from a WAV file in the
 //! user's runtime directory, which is RAM, and that file is removed straight after).
+//!
+//! With auto-paste on (VRT-59, Linux) the text is typed where the cursor is instead, through
+//! the RemoteDesktop portal (`autopaste.rs`); characters the keyboard layout can't type are
+//! pasted through the Clipboard portal, and the previous clipboard text is put back.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Manager};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::{self, AudioSource, CpalSource, SourceKind};
 use crate::commands::{RecorderState, SOURCES_SETTING, resolve_sources};
@@ -17,6 +22,10 @@ use crate::db::Db;
 use crate::engine::{self, Engine, EngineManager};
 use crate::live::downmix;
 
+#[cfg(target_os = "linux")]
+mod autopaste;
+#[cfg(target_os = "linux")]
+mod keys;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
@@ -34,6 +43,31 @@ pub const MAX_HOLD: Duration = Duration::from_secs(5 * 60);
 const POLL: Duration = Duration::from_millis(20);
 /// The notification's id: each one replaces the last.
 const NOTIFICATION: &str = "dictation";
+/// Settings keys (VRT-59): auto-paste on, the paste key, and the portal's restore token.
+pub const AUTOPASTE_SETTING: &str = "dictation.autopaste";
+pub const PASTE_KEY_SETTING: &str = "dictation.paste_key";
+const PASTE_TOKEN_SETTING: &str = "dictation.paste_token";
+
+/// The key that pastes in the focused app (decision-11): Ctrl+V in most apps, Ctrl+Shift+V
+/// in terminals. A Wayland app can't see which window has focus, so the user picks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PasteKey {
+    #[default]
+    CtrlV,
+    CtrlShiftV,
+}
+
+/// Auto-paste as Settings shows it (event `dictation:paste`).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PasteStatus {
+    /// This system can paste automatically.
+    pub supported: bool,
+    pub enabled: bool,
+    pub key: PasteKey,
+    /// Why it could not be turned on, or turned itself off.
+    pub error: Option<String>,
+}
 
 /// What a press of the dictation key does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,6 +236,9 @@ fn capture(db: &Db, stop: &AtomicBool) -> Result<Vec<f32>, String> {
 pub struct Dictation {
     hold: Mutex<Hold>,
     capture: Mutex<Option<Capture>>,
+    /// The auto-paste session while auto-paste is on.
+    paste: tokio::sync::Mutex<Option<platform::AutoPaste>>,
+    paste_status: Mutex<PasteStatus>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -281,7 +318,7 @@ pub fn released(app: &AppHandle) {
     }
 }
 
-/// Stop listening, transcribe and put the text on the clipboard.
+/// Stop listening, transcribe, and paste the text or put it on the clipboard.
 fn finish(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let capture = lock(&app.state::<Dictation>().capture).take();
@@ -293,17 +330,72 @@ fn finish(app: AppHandle) {
             },
             None => Err("the microphone wasn't recording".into()),
         };
-        let outcome = match result {
-            Ok(samples) => transcribe_and_copy(&app, &samples).await,
+        let text = match result {
+            Ok(samples) => transcribe(&app, &samples).await,
             Err(e) => Err(e),
         };
-        match outcome {
-            Ok(Some(text)) => notify("Ready to paste", &preview(&text)),
+        match text {
+            Ok(Some(text)) => deliver(&app, &text).await,
             Ok(None) => notify("Nothing was heard", "Hold the key while you speak."),
             Err(e) => notify("Dictation failed", &e),
         }
         lock(&app.state::<Dictation>().hold).done();
     });
+}
+
+/// Type the text (auto-paste on) or put it on the clipboard.
+async fn deliver(app: &AppHandle, text: &str) {
+    let state = app.state::<Dictation>();
+    let key = lock(&state.paste_status).key;
+    let mut pasted = None;
+    for attempt in 0..2 {
+        {
+            let paste = state.paste.lock().await;
+            match paste.as_ref() {
+                Some(p) if p.is_alive() => pasted = Some(p.paste(text, key).await),
+                Some(_) => pasted = None,
+                None => break,
+            }
+        }
+        match &pasted {
+            Some(Ok(_)) => break,
+            Some(Err(e)) => eprintln!("dictation: pasting failed: {e}"),
+            None => eprintln!("dictation: the auto-paste session ended"),
+        }
+        // The session ended (sharing stopped, screen locked): start it again with the token,
+        // which needs no dialog, and try once more.
+        if attempt == 0 {
+            let db = app.state::<Db>().inner().clone();
+            if !state.start_paste(app, &db).await.enabled {
+                break;
+            }
+        }
+    }
+    match pasted {
+        Some(Ok(outcome)) => {
+            eprintln!("dictation: pasted ({outcome:?})");
+            if outcome == Pasted::NotAsked {
+                notify("Ready to paste", &preview(text));
+            }
+        }
+        _ => match platform::copy(text).await {
+            Ok(()) => notify("Ready to paste", &preview(text)),
+            Err(e) => notify("Dictation failed", &e),
+        },
+    }
+}
+
+/// What auto-paste did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pasted {
+    /// Typed; the clipboard wasn't touched.
+    Typed,
+    /// Pasted, and the previous clipboard text is back.
+    Restored,
+    /// Pasted; the clipboard had no text before, so the dictated text stays on it.
+    Kept,
+    /// No app asked for the text (no text field focused): it stays on the clipboard.
+    NotAsked,
 }
 
 /// Where the audio goes for the engine: the runtime directory is in memory (tmpfs).
@@ -320,7 +412,7 @@ fn wav_path(app: &AppHandle) -> PathBuf {
     ))
 }
 
-async fn transcribe_and_copy(app: &AppHandle, samples: &[f32]) -> Result<Option<String>, String> {
+async fn transcribe(app: &AppHandle, samples: &[f32]) -> Result<Option<String>, String> {
     let started = Instant::now();
     let wav = wav_path(app);
     if let Some(dir) = wav.parent() {
@@ -337,11 +429,115 @@ async fn transcribe_and_copy(app: &AppHandle, samples: &[f32]) -> Result<Option<
         started.elapsed().as_millis(),
         text.chars().count()
     );
-    if text.is_empty() {
-        return Ok(None);
+    Ok((!text.is_empty()).then_some(text))
+}
+
+impl Dictation {
+    fn set_paste_status(&self, app: &AppHandle, f: impl FnOnce(&mut PasteStatus)) -> PasteStatus {
+        let status = {
+            let mut s = lock(&self.paste_status);
+            f(&mut s);
+            s.clone()
+        };
+        let _ = app.emit("dictation:paste", &status);
+        status
     }
-    platform::copy(&text).await?;
-    Ok(Some(text))
+
+    /// Start auto-paste (the desktop may ask the user) and remember the restore token; on
+    /// failure the setting turns itself off.
+    async fn start_paste(&self, app: &AppHandle, db: &Db) -> PasteStatus {
+        let mut paste = self.paste.lock().await;
+        if let Some(p) = paste.take() {
+            p.close().await;
+        }
+        let token: Option<String> = db.get_setting(PASTE_TOKEN_SETTING).await.ok().flatten();
+        let result = platform::AutoPaste::start(token.as_deref()).await;
+        let (enabled, error) = match result {
+            Ok((p, new_token)) => {
+                *paste = Some(p);
+                // The token is new after every start; the old one no longer works.
+                let _ = db.set_setting(PASTE_TOKEN_SETTING, &new_token).await;
+                (true, None)
+            }
+            Err(e) => {
+                eprintln!("dictation: auto-paste: {e}");
+                let _ = db.set_setting(PASTE_TOKEN_SETTING, &None::<String>).await;
+                (false, Some(e))
+            }
+        };
+        let _ = db.set_setting(AUTOPASTE_SETTING, &enabled).await;
+        self.set_paste_status(app, |s| {
+            s.enabled = enabled;
+            s.error = error;
+        })
+    }
+
+    /// End the auto-paste session and forget the restore token.
+    async fn stop_paste(&self, app: &AppHandle, db: &Db) -> Result<PasteStatus, String> {
+        if let Some(p) = self.paste.lock().await.take() {
+            p.close().await;
+        }
+        db.set_setting(PASTE_TOKEN_SETTING, &None::<String>)
+            .await
+            .map_err(|e| e.to_string())?;
+        db.set_setting(AUTOPASTE_SETTING, &false)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(self.set_paste_status(app, |s| {
+            s.enabled = false;
+            s.error = None;
+        }))
+    }
+}
+
+/// At start: the paste key, and auto-paste again if it was on (no dialog with the token).
+pub fn start(app: &AppHandle, db: &Db) {
+    let (app, db) = (app.clone(), db.clone());
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<Dictation>();
+        let key: Option<PasteKey> = db.get_setting(PASTE_KEY_SETTING).await.ok().flatten();
+        state.set_paste_status(&app, |s| {
+            s.supported = platform::AUTOPASTE;
+            s.key = key.unwrap_or_default();
+        });
+        let on: Option<bool> = db.get_setting(AUTOPASTE_SETTING).await.ok().flatten();
+        if on == Some(true) && platform::AUTOPASTE {
+            state.start_paste(&app, &db).await;
+        }
+    });
+}
+
+#[tauri::command]
+pub fn get_dictation_paste(dictation: tauri::State<'_, Dictation>) -> PasteStatus {
+    lock(&dictation.paste_status).clone()
+}
+
+/// Turn auto-paste on (the desktop asks the first time) or off.
+#[tauri::command]
+pub async fn set_dictation_paste(
+    app: AppHandle,
+    dictation: tauri::State<'_, Dictation>,
+    db: tauri::State<'_, Db>,
+    enabled: bool,
+) -> Result<PasteStatus, String> {
+    if enabled {
+        Ok(dictation.start_paste(&app, &db).await)
+    } else {
+        dictation.stop_paste(&app, &db).await
+    }
+}
+
+#[tauri::command]
+pub async fn set_paste_key(
+    app: AppHandle,
+    dictation: tauri::State<'_, Dictation>,
+    db: tauri::State<'_, Db>,
+    key: PasteKey,
+) -> Result<PasteStatus, String> {
+    db.set_setting(PASTE_KEY_SETTING, &key)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(dictation.set_paste_status(&app, |s| s.key = key))
 }
 
 /// The start of the text, for the notification.
@@ -433,6 +629,19 @@ mod tests {
         h.abort();
         assert_eq!(h.release(at(t0, 1000)), Release::Ignore);
         assert!(matches!(h.press(at(t0, 1100), false), Press::Listen(_)));
+    }
+
+    #[test]
+    fn paste_keys_are_stored_by_name() {
+        assert_eq!(
+            serde_json::to_string(&PasteKey::CtrlV).unwrap(),
+            "\"ctrl-v\""
+        );
+        assert_eq!(
+            serde_json::from_str::<PasteKey>("\"ctrl-shift-v\"").unwrap(),
+            PasteKey::CtrlShiftV
+        );
+        assert_eq!(PasteKey::default(), PasteKey::CtrlV);
     }
 
     #[test]
